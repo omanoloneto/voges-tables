@@ -22,6 +22,7 @@ import '../l10n/app_language.dart';
 import '../l10n/l10n.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/chart.dart';
 import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
 import '../shell/platform.dart';
@@ -32,6 +33,7 @@ import '../workbook/selection.dart';
 import '../workbook/workbook_controller.dart';
 import 'dialogs.dart';
 import 'file_panel.dart';
+import 'find_bar.dart';
 import 'ribbon.dart';
 import 'status_bar.dart';
 
@@ -63,6 +65,11 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> with WindowListener {
   final _gridFocus = FocusNode(debugLabel: 'grid');
+  final _grid = GlobalKey<SpreadsheetGridState>();
+  final _findBar = GlobalKey<FindBarState>();
+
+  /// Null while Find is closed; true with the replace row open.
+  bool? _finding;
   late final CellEditing _editing;
   late final AppLifecycleListener _lifecycle;
   var _zoom = 1.0;
@@ -455,7 +462,7 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
         children: [
           Icon(icon, size: 18),
           const SizedBox(width: 12),
-          Text(label),
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
@@ -493,6 +500,11 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
         ),
         const PopupMenuDivider(),
         item(
+          Icons.merge,
+          controller.activeMerge == null ? l10n.mergeCenter : l10n.unmergeCells,
+          _merge,
+        ),
+        item(
           Icons.backspace_outlined,
           l10n.clearContents,
           controller.clearContents,
@@ -501,6 +513,43 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
     );
     action?.call();
     _gridFocus.requestFocus();
+  }
+
+  Future<void> _merge() async {
+    _finishTyping();
+    if (controller.activeMerge != null) {
+      controller.unmergeSelection();
+      return;
+    }
+    if (controller.mergeWouldClear && !await confirmMergeClearsData(context)) {
+      return;
+    }
+    controller.mergeSelection();
+  }
+
+  void _openFind({bool replace = false}) {
+    _finishTyping();
+    if (_finding != null) {
+      _findBar.currentState?.focus(replace: replace);
+      if (replace) setState(() => _finding = true);
+      return;
+    }
+    setState(() => _finding = replace);
+  }
+
+  void _closeFind() {
+    setState(() => _finding = null);
+    _gridFocus.requestFocus();
+  }
+
+  void _insertChart(ChartKind kind) {
+    _finishTyping();
+    final index = controller.insertChart(kind);
+    if (index == null) {
+      _tell(context.l10n.chartNoNumbers);
+      return;
+    }
+    _grid.currentState?.selectChart(index);
   }
 
   void _bold() {
@@ -557,6 +606,8 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
         shortcut(LogicalKeyboardKey.keyB): _cells(_bold),
         shortcut(LogicalKeyboardKey.keyI): _cells(_italic),
         shortcut(LogicalKeyboardKey.keyU): _cells(_underline),
+        shortcut(LogicalKeyboardKey.keyF): _openFind,
+        shortcut(LogicalKeyboardKey.keyH): () => _openFind(replace: true),
         shortcut(LogicalKeyboardKey.equal, shift: true): _cells(
           () => _insert(_keyboardAxis),
         ),
@@ -604,6 +655,10 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
                           autoSum: _autoSum,
                           insert: _insert,
                           delete: _delete,
+                          merge: _merge,
+                          find: _openFind,
+                          replace: () => _openFind(replace: true),
+                          insertChart: _insertChart,
                         ),
                       ),
                     ],
@@ -616,13 +671,35 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
                 gridFocus: _gridFocus,
               ),
               Expanded(
-                child: SpreadsheetGrid(
-                  controller: controller,
-                  editing: _editing,
-                  focusNode: _gridFocus,
-                  zoom: _zoom,
-                  onZoom: _setZoom,
-                  onContextMenu: _showCellMenu,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: SpreadsheetGrid(
+                        key: _grid,
+                        controller: controller,
+                        editing: _editing,
+                        focusNode: _gridFocus,
+                        zoom: _zoom,
+                        onZoom: _setZoom,
+                        onContextMenu: _showCellMenu,
+                      ),
+                    ),
+                    if (_finding case final replace?)
+                      Positioned(
+                        top: 8,
+                        right: 20,
+                        child: FindBar(
+                          key: _findBar,
+                          controller: controller,
+                          showReplace: replace,
+                          onFound: (cell) =>
+                              _grid.currentState?.ensureVisible(cell),
+                          onClose: _closeFind,
+                          onReplaced: (count) =>
+                              _tell(context.l10n.replacedCount(count)),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               ListenableBuilder(

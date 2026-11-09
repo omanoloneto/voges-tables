@@ -62,7 +62,7 @@ class _FormulaBarState extends State<FormulaBar> {
           : '${range.rows}L × ${range.columns}C';
     }
     if (!editing.active) {
-      _idle.text = controller.editTextAt(controller.selection.active);
+      _idle.text = controller.editTextAt(controller.editCell);
     }
     setState(() {});
   }
@@ -70,7 +70,7 @@ class _FormulaBarState extends State<FormulaBar> {
   /// Clicking the bar starts editing the active cell there.
   void _barFocus() {
     if (widget.editing.barFocus.hasFocus && !editing.active) {
-      editing.start(controller.selection.active, inBar: true);
+      editing.start(controller.editCell, inBar: true);
     }
   }
 

@@ -34,6 +34,7 @@ class WorkbookController extends ChangeNotifier {
 
   /// Text results depend on the language (`=2.5&""` is "2,5" in Portuguese).
   void localeChanged() {
+    _displays.clear();
     if (_calculator.locale == locale()) return;
     _calculator.locale = locale();
     notifyListeners();
@@ -98,10 +99,22 @@ class WorkbookController extends ChangeNotifier {
   CellValue valueAt(CellAddress address, [int? sheetIndex]) =>
       _calculator.valueAt(sheetIndex ?? _active, address);
 
+  final _displays = <CellKey, String>{};
+  var _displaysRevision = -1;
+
+  /// The text a cell shows. Kept until the next change, so repainting while
+  /// scrolling does not format the same numbers again and again.
   String displayAt(CellAddress address, [int? sheetIndex]) {
     final index = sheetIndex ?? _active;
-    final cell = _workbook.sheets[index].cellAt(address);
-    return formatValue(valueAt(address, index), cell.style.format, locale());
+    if (_displaysRevision != _revision || _displays.length > 50000) {
+      _displays.clear();
+      _displaysRevision = _revision;
+    }
+    return _displays[cellKey(index, address)] ??= formatValue(
+      valueAt(address, index),
+      _workbook.sheets[index].cellAt(address).style.format,
+      locale(),
+    );
   }
 
   String editTextAt(CellAddress address) => editText(cellAt(address), locale());

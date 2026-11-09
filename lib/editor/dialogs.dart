@@ -88,3 +88,24 @@ Future<bool> confirmDeleteSheet(BuildContext context, String name) async {
   );
   return yes ?? false;
 }
+
+Future<bool> confirmMergeClearsData(BuildContext context) async {
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(context.l10n.mergeCenter),
+      content: Text(context.l10n.mergeClearsData),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(context.l10n.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(context.l10n.mergeAction),
+        ),
+      ],
+    ),
+  );
+  return yes ?? false;
+}

@@ -675,6 +675,186 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'There is no room: the last rows or columns of the sheet have data.'**
   String get insertNoRoom;
+
+  /// No description provided for @mergeCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge & Center'**
+  String get mergeCenter;
+
+  /// No description provided for @unmergeCells.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmerge cells'**
+  String get unmergeCells;
+
+  /// No description provided for @mergeClearsData.
+  ///
+  /// In en, this message translates to:
+  /// **'Merging keeps only the value of the top left cell. Merge anyway?'**
+  String get mergeClearsData;
+
+  /// No description provided for @mergeAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge'**
+  String get mergeAction;
+
+  /// No description provided for @find.
+  ///
+  /// In en, this message translates to:
+  /// **'Find'**
+  String get find;
+
+  /// No description provided for @replace.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get replace;
+
+  /// No description provided for @replaceAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace all'**
+  String get replaceAll;
+
+  /// No description provided for @replaceWith.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace with'**
+  String get replaceWith;
+
+  /// No description provided for @findNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get findNext;
+
+  /// No description provided for @findPrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous'**
+  String get findPrevious;
+
+  /// No description provided for @matchCase.
+  ///
+  /// In en, this message translates to:
+  /// **'Match case'**
+  String get matchCase;
+
+  /// No description provided for @wholeCell.
+  ///
+  /// In en, this message translates to:
+  /// **'Match the whole cell'**
+  String get wholeCell;
+
+  /// No description provided for @lookInFormulas.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in formulas'**
+  String get lookInFormulas;
+
+  /// No description provided for @findResult.
+  ///
+  /// In en, this message translates to:
+  /// **'{current} of {total}'**
+  String findResult(int current, int total);
+
+  /// No description provided for @findNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No results'**
+  String get findNone;
+
+  /// No description provided for @replacedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Nothing replaced} =1{1 cell replaced} other{{count} cells replaced}}'**
+  String replacedCount(int count);
+
+  /// No description provided for @chartGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Chart'**
+  String get chartGroup;
+
+  /// No description provided for @insertChart.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert chart'**
+  String get insertChart;
+
+  /// No description provided for @chartColumn.
+  ///
+  /// In en, this message translates to:
+  /// **'Column'**
+  String get chartColumn;
+
+  /// No description provided for @chartBar.
+  ///
+  /// In en, this message translates to:
+  /// **'Bar'**
+  String get chartBar;
+
+  /// No description provided for @chartLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Line'**
+  String get chartLine;
+
+  /// No description provided for @chartArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Area'**
+  String get chartArea;
+
+  /// No description provided for @chartPie.
+  ///
+  /// In en, this message translates to:
+  /// **'Pie'**
+  String get chartPie;
+
+  /// No description provided for @chartScatter.
+  ///
+  /// In en, this message translates to:
+  /// **'Scatter'**
+  String get chartScatter;
+
+  /// No description provided for @chartType.
+  ///
+  /// In en, this message translates to:
+  /// **'Chart type'**
+  String get chartType;
+
+  /// No description provided for @chartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Chart title'**
+  String get chartTitle;
+
+  /// No description provided for @chartLegend.
+  ///
+  /// In en, this message translates to:
+  /// **'Legend'**
+  String get chartLegend;
+
+  /// No description provided for @deleteChart.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete chart'**
+  String get deleteChart;
+
+  /// No description provided for @chartNoNumbers.
+  ///
+  /// In en, this message translates to:
+  /// **'Select cells with numbers to make a chart.'**
+  String get chartNoNumbers;
+
+  /// No description provided for @chartNoData.
+  ///
+  /// In en, this message translates to:
+  /// **'No data'**
+  String get chartNoData;
 }
 
 class _AppLocalizationsDelegate
