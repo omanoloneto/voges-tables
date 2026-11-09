@@ -4,8 +4,11 @@ import '../formula/formula.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/cell_style.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/chart.dart';
 import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
+import 'chart_builder.dart';
+import 'find.dart';
 import 'selection.dart';
 import 'undo_history.dart';
 
@@ -106,13 +109,33 @@ class WorkbookController extends ChangeNotifier {
   // Selection and sheets.
 
   void select(Selection selection) {
-    final next = Selection(
+    final next = _withMerges(
       clampAddress(selection.anchor),
       clampAddress(selection.active),
     );
     if (next == _selection) return;
     _selection = next;
     notifyListeners();
+  }
+
+  /// A selection covers whole merges; clicking a merged cell selects all of
+  /// it with its top left cell active, as in Excel.
+  Selection _withMerges(CellAddress anchor, CellAddress active) {
+    if (sheet.merges.isEmpty) return Selection(anchor, active);
+    final merge = sheet.mergeAt(active);
+    if (merge != null && merge.contains(anchor)) {
+      return Selection(merge.first, merge.first, merge);
+    }
+    final range = sheet.expandToMerges(CellRange(anchor, active));
+    return range == CellRange(anchor, active)
+        ? Selection(anchor, active)
+        : Selection(anchor, active, range);
+  }
+
+  /// The cell that typing goes to: the top left one of a merge.
+  CellAddress get editCell {
+    final active = _selection.active;
+    return sheet.mergeAt(active)?.first ?? active;
   }
 
   void selectAll() {
@@ -279,6 +302,216 @@ class WorkbookController extends ChangeNotifier {
     _changed();
   }
 
+  // Merged cells.
+
+  /// The merge under the active cell, if any.
+  CellRange? get activeMerge => sheet.mergeAt(_selection.active);
+
+  /// Merges the selection into one cell that keeps the top left content;
+  /// merges inside it are replaced. With [center] the text is centered, as
+  /// Excel's "Merge & Center" does. Nothing happens for a single cell or a
+  /// whole row or column.
+  void mergeSelection({bool center = true}) {
+    final range = _selection.range;
+    if (range.isSingle || wholeRowsSelected || wholeColumnsSelected) return;
+    final change = Change(_active)
+      ..mergesBefore = sheet.merges
+      ..mergesAfter = [
+        for (final merge in sheet.merges)
+          if (!merge.intersects(range)) merge,
+        range,
+      ];
+    for (final address in _storedIn(range)) {
+      if (address == range.first) continue;
+      final cell = cellAt(address);
+      if (cell.input.isNotEmpty || cell.constant is! EmptyValue) {
+        _write(change, address, Cell(style: cell.style));
+      }
+    }
+    if (center) {
+      final first = cellAt(range.first);
+      _write(
+        change,
+        range.first,
+        first.copyWith(
+          style: first.style.copyWith(horizontal: HorizontalAlign.center),
+        ),
+      );
+    }
+    _apply(change.sheet, change.after);
+    sheet.merges = change.mergesAfter!;
+    _history.record(change);
+    _selection = Selection(range.first, range.first, range);
+    _changed();
+  }
+
+  /// Splits every merge that touches the selection.
+  void unmergeSelection() {
+    final range = _selection.range;
+    final kept = [
+      for (final merge in sheet.merges)
+        if (!merge.intersects(range)) merge,
+    ];
+    if (kept.length == sheet.merges.length) return;
+    final change = Change(_active)
+      ..mergesBefore = sheet.merges
+      ..mergesAfter = kept;
+    sheet.merges = kept;
+    _history.record(change);
+    _changed();
+  }
+
+  /// Content of cells that a merge would clear, so the editor can warn.
+  bool get mergeWouldClear {
+    final range = _selection.range;
+    for (final address in _storedIn(range)) {
+      if (address == range.first) continue;
+      final cell = cellAt(address);
+      if (cell.input.isNotEmpty || cell.constant is! EmptyValue) return true;
+    }
+    return false;
+  }
+
+  // Find and replace.
+
+  List<CellAddress>? _found;
+  (FindQuery, int, int)? _foundFor;
+
+  /// Every cell of the active sheet that matches, by rows. Kept until the
+  /// workbook or the query changes, so going to the next match is a binary
+  /// search instead of a scan of the sheet.
+  List<CellAddress> findAll(FindQuery query) {
+    final key = (query, _active, _revision);
+    if (_foundFor == key) return _found!;
+    final found = <CellAddress>[];
+    if (!query.isEmpty) {
+      final merges = sheet.merges.isNotEmpty;
+      sheet.cells.forEach((address, cell) {
+        if (cell.input.isEmpty && cell.constant is EmptyValue) return;
+        if (merges && (sheet.mergeAt(address)?.first ?? address) != address) {
+          return;
+        }
+        final text = query.inFormulas
+            ? editText(cell, locale())
+            : displayAt(address);
+        if (query.matches(text)) found.add(address);
+      });
+      found.sort();
+    }
+    _found = found;
+    _foundFor = key;
+    return found;
+  }
+
+  /// Selects the next match after the active cell (or before it), wrapping
+  /// around the sheet. Null when nothing matches.
+  CellAddress? findNext(FindQuery query, {bool backwards = false}) {
+    final found = findAll(query);
+    if (found.isEmpty) return null;
+    final from = _selection.active;
+    var low = 0, high = found.length;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (found[middle].compareTo(from) <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    final CellAddress next;
+    if (backwards) {
+      var index = low - 1;
+      if (index >= 0 && found[index] == from) index--;
+      next = found[index < 0 ? found.length - 1 : index];
+    } else {
+      next = found[low < found.length ? low : 0];
+    }
+    select(Selection.single(next));
+    return next;
+  }
+
+  /// Replaces in the active cell when it matches, then goes to the next
+  /// match. Replacing always works on what was typed, as in Excel.
+  CellAddress? replaceNext(FindQuery query, String replacement) {
+    final active = editCell;
+    final text = editTextAt(active);
+    if (query.matches(text)) {
+      enter(active, query.replace(text, replacement));
+    }
+    return findNext(query);
+  }
+
+  /// Replaces every match of the sheet in one change; returns how many
+  /// cells changed.
+  int replaceAll(FindQuery query, String replacement) {
+    if (query.isEmpty) return 0;
+    final change = Change(_active);
+    for (final address in findAll(query)) {
+      final text = editTextAt(address);
+      if (!query.matches(text)) continue;
+      final updated = query.replace(text, replacement);
+      if (updated == text) continue;
+      _write(
+        change,
+        address,
+        parseInput(updated, locale()).applyTo(cellAt(address)),
+      );
+    }
+    _commit(change);
+    return change.after.length;
+  }
+
+  // Charts.
+
+  /// Makes a chart of the selection, or of the block around the active cell
+  /// when only one cell is selected. Returns its index, or null when there
+  /// are no numbers to draw.
+  int? insertChart(ChartKind kind) {
+    final range = _selection.range.isSingle
+        ? currentRegion(sheet, _selection.active)
+        : _selection.range;
+    final chart = buildChart(
+      sheet: sheet,
+      range: range,
+      kind: kind,
+      valueAt: valueAt,
+    );
+    if (chart == null) return null;
+    _setCharts([...sheet.charts, chart]);
+    return sheet.charts.length - 1;
+  }
+
+  void updateChart(int index, SheetChart chart) {
+    if (index < 0 || index >= sheet.charts.length) return;
+    _setCharts([...sheet.charts]..[index] = chart);
+  }
+
+  void deleteChart(int index) {
+    if (index < 0 || index >= sheet.charts.length) return;
+    _setCharts([...sheet.charts]..removeAt(index));
+  }
+
+  void _setCharts(List<SheetChart> charts) {
+    final change = Change(_active)
+      ..chartsBefore = sheet.charts
+      ..chartsAfter = List.unmodifiable(charts);
+    sheet.charts = change.chartsAfter!;
+    _history.record(change);
+    _changed();
+  }
+
+  /// The values a chart reads from [data], by its sheet name; empty when
+  /// that sheet is gone.
+  CellValue chartValue(ChartData data, CellAddress address) {
+    final index = _workbook.indexOf(data.sheet);
+    return index < 0 ? const EmptyValue() : valueAt(address, index);
+  }
+
+  String chartText(ChartData data, CellAddress address) {
+    final index = _workbook.indexOf(data.sheet);
+    return index < 0 ? '' : displayAt(address, index);
+  }
+
   // Undo.
 
   void undo() => _replay(_history.takeUndo(), back: true);
@@ -311,6 +544,12 @@ class WorkbookController extends ChangeNotifier {
     final target = _workbook.sheets[change.sheet];
     sizes(back ? change.widthsBefore : change.widthsAfter, target.columnWidths);
     sizes(back ? change.heightsBefore : change.heightsAfter, target.rowHeights);
+    if (back ? change.mergesBefore : change.mergesAfter case final merges?) {
+      target.merges = merges;
+    }
+    if (back ? change.chartsBefore : change.chartsAfter case final charts?) {
+      target.charts = charts;
+    }
     if (cells.isNotEmpty) {
       final keys = cells.keys.toList()..sort();
       _selection = Selection(keys.first, keys.last);
@@ -324,7 +563,7 @@ class WorkbookController extends ChangeNotifier {
     final target = _workbook.sheets[change.sheet];
     if (!back) {
       change.result = _calculator.changeStructure(change.edit)!;
-      target.moveLayout(change.edit);
+      _moveLayouts(change.edit);
       return;
     }
     final edit = change.edit, inverse = edit.inverse;
@@ -345,6 +584,9 @@ class WorkbookController extends ChangeNotifier {
     );
     _calculator.setCells(fixes);
     change.layout.restore(target);
+    for (var i = 0; i < change.charts.length; i++) {
+      _workbook.sheets[i].charts = change.charts[i];
+    }
   }
 
   // Rows and columns.
@@ -387,13 +629,28 @@ class WorkbookController extends ChangeNotifier {
       count: count,
     );
     final layout = SheetLayout.of(sheet);
+    final charts = [for (final s in _workbook.sheets) s.charts];
     final result = _calculator.changeStructure(edit);
     if (result == null) return false;
-    sheet.moveLayout(edit);
+    _moveLayouts(edit);
     _clip = null;
-    _history.record(StructureChange(edit, layout, result));
+    _history.record(StructureChange(edit, layout, charts, result));
     _changed();
     return true;
+  }
+
+  void _moveLayouts(StructureEdit edit) {
+    final edited = _workbook.sheets[edit.sheet];
+    edited.moveLayout(edit);
+    final name = edited.name.toLowerCase();
+    for (var i = 0; i < _workbook.sheets.length; i++) {
+      final target = _workbook.sheets[i];
+      if (target.charts.isEmpty) continue;
+      target.charts = [
+        for (final chart in target.charts)
+          ?chart.moved(edit, name, onEditedSheet: i == edit.sheet),
+      ];
+    }
   }
 
   // Clipboard.
@@ -647,6 +904,7 @@ class WorkbookController extends ChangeNotifier {
   void sortSelection({required bool ascending}) {
     final range = _selection.range;
     if (range.rows < 2) return;
+    if (sheet.merges.any((merge) => merge.intersects(range))) return;
     final used = sheet.usedRange;
     if (used == null) return;
     final lastRow = range.last.row < used.last.row
