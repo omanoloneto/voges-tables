@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../formula/references.dart';
 import '../l10n/l10n.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/chart.dart';
@@ -523,14 +524,9 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   String _referenceText(CellRange range) {
     final prefix = controller.activeSheet == editing.sheet
         ? ''
-        : '${_quotedSheet(controller.sheet.name)}!';
+        : '${sheetPrefix(controller.sheet.name)}!';
     return '$prefix${range.a1}';
   }
-
-  static String _quotedSheet(String name) =>
-      RegExp(r'^[A-Za-z_][A-Za-z0-9_.]*$').hasMatch(name)
-      ? name
-      : "'${name.replaceAll("'", "''")}'";
 
   void _keepEditorFocus() {
     final bar = editing.barFocus.hasFocus;

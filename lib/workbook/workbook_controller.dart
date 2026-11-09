@@ -196,10 +196,52 @@ class WorkbookController extends ChangeNotifier {
     if (!isValidSheetName(trimmed)) return false;
     final other = _workbook.indexOf(trimmed);
     if (other >= 0 && other != index) return false;
-    _workbook.sheets[index].name = trimmed;
-    _calculator.sheetsChanged();
+    final old = _workbook.sheets[index].name;
+    if (old == trimmed) return true;
+    _rename(index, old, trimmed);
+    _history.record(SheetRename(index, old, trimmed));
     _changed();
     return true;
+  }
+
+  void _rename(int index, String oldName, String newName) {
+    _workbook.sheets[index].name = newName;
+    _renameReferences(oldName, newName);
+    _calculator.sheetsChanged();
+  }
+
+  /// Formulas and charts that read the sheet [oldName] read it by its new
+  /// name.
+  void _renameReferences(String oldName, String newName) {
+    final lower = oldName.toLowerCase();
+    for (final target in _workbook.sheets) {
+      for (final MapEntry(:key, :value) in target.cells.entries.toList()) {
+        if (!value.isFormula) continue;
+        final text = renameSheetReferences(value.input, oldName, newName);
+        if (!identical(text, value.input)) {
+          target.setCell(key, value.copyWith(input: text));
+        }
+      }
+      if (target.charts.isEmpty) continue;
+      ChartData? data(ChartData? value) =>
+          value != null && value.sheet.toLowerCase() == lower
+          ? value.withSheet(newName)
+          : value;
+      target.charts = [
+        for (final chart in target.charts)
+          chart.copyWith(
+            categories: () => data(chart.categories),
+            series: [
+              for (final s in chart.series)
+                ChartSeries(
+                  values: data(s.values)!,
+                  name: data(s.name),
+                  title: s.title,
+                ),
+            ],
+          ),
+      ];
+    }
   }
 
   void deleteSheet(int index) {
@@ -550,6 +592,8 @@ class WorkbookController extends ChangeNotifier {
         _replayCells(entry, back: back);
       case StructureChange():
         _replayStructure(entry, back: back);
+      case SheetRename(:final sheet, :final oldName, :final newName):
+        _rename(sheet, back ? newName : oldName, back ? oldName : newName);
     }
     _changed();
   }

@@ -242,4 +242,26 @@ void main() {
       expect(c.sheet.charts.single.title, isNull);
     });
   });
+
+  test('renaming a sheet rewrites formulas and charts that read it', () {
+    final c = controller();
+    c.enter(at('A1'), '2');
+    c.enter(at('A2'), '3');
+    c.addSheet('Resumo');
+    c.enter(at('A1'), '=Sheet1!A1*10');
+    c.showSheet(0);
+    c.select(select('A1:A2'));
+    c.insertChart(ChartKind.line);
+    expect(c.renameSheet(0, 'Dados do ano'), isTrue);
+    expect(
+      c.workbook.sheets[1].cellAt(at('A1')).input,
+      "='Dados do ano'!A1*10",
+    );
+    expect(c.valueAt(at('A1'), 1), const NumberValue(20));
+    expect(c.sheet.charts.single.series.single.values.sheet, 'Dados do ano');
+    c.undo();
+    expect(c.workbook.sheets[0].name, 'Sheet1');
+    expect(c.workbook.sheets[1].cellAt(at('A1')).input, '=Sheet1!A1*10');
+    expect(c.sheet.charts.single.series.single.values.sheet, 'Sheet1');
+  });
 }

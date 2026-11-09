@@ -137,6 +137,47 @@ List<_Part>? _moveParts(List<_Part> parts, StructureEdit edit, bool rows) {
         ];
 }
 
+/// How a sheet name is written before `!`: quoted when it is not a plain
+/// name, with quotes inside doubled.
+String sheetPrefix(String name) =>
+    RegExp(r'^[A-Za-z_][A-Za-z0-9_.]*$').hasMatch(name) &&
+        CellAddress.tryParse(name) == null
+    ? name
+    : "'${name.replaceAll("'", "''")}'";
+
+/// [canonicalFormula] with every `oldName!` prefix (in any case) written as
+/// [newName]; the same string when there is none.
+String renameSheetReferences(
+  String canonicalFormula,
+  String oldName,
+  String newName,
+) {
+  if (!canonicalFormula.startsWith('=') || !canonicalFormula.contains('!')) {
+    return canonicalFormula;
+  }
+  final wanted = oldName.toLowerCase();
+  final tokens = tokenize(canonicalFormula);
+  StringBuffer? out;
+  var copied = 0;
+  for (var i = 0; i + 1 < tokens.length; i++) {
+    final token = tokens[i];
+    if ((token.type != TokenType.identifier &&
+            token.type != TokenType.quotedName) ||
+        tokens[i + 1].type != TokenType.bang ||
+        token.value.toLowerCase() != wanted) {
+      continue;
+    }
+    out ??= StringBuffer();
+    out
+      ..write(canonicalFormula.substring(copied, token.start))
+      ..write(sheetPrefix(newName));
+    copied = token.end;
+  }
+  if (out == null) return canonicalFormula;
+  out.write(canonicalFormula.substring(copied));
+  return out.toString();
+}
+
 /// The reference starting at token [index]: the index of its last token and
 /// its one or two endpoints.
 (int, List<_Part>)? _readReference(List<Token> tokens, int index) {

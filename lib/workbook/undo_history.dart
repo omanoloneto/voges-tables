@@ -57,6 +57,19 @@ class StructureChange extends HistoryEntry {
   bool get isEmpty => false;
 }
 
+/// A sheet renamed; formulas and charts that read it follow both ways.
+class SheetRename extends HistoryEntry {
+  SheetRename(this.sheet, this.oldName, this.newName);
+
+  @override
+  final int sheet;
+  final String oldName;
+  final String newName;
+
+  @override
+  bool get isEmpty => oldName == newName;
+}
+
 class UndoHistory {
   static const limit = 200;
 
