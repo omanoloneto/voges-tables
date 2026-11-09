@@ -456,7 +456,7 @@ class Ribbon extends StatelessWidget {
             items: [
               RibbonMenuItem(
                 Icons.table_rows_outlined,
-                '${l10n.insertRows} (${shortcutLabel('+', shift: true)})',
+                '${l10n.insertRows} (${shortcutLabel('=', shift: true)})',
                 () => actions.insert(SheetAxis.rows),
               ),
               RibbonMenuItem(

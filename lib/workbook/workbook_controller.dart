@@ -14,12 +14,21 @@ import 'undo_history.dart';
 
 /// Cells copied or cut, kept relative to the top left corner of the copy.
 class CellClip {
-  CellClip(this.sheet, this.range, this.cells, {required this.cut});
+  CellClip(
+    this.sheet,
+    this.range,
+    this.cells, {
+    required this.cut,
+    this.merges = const [],
+  });
 
   final int sheet;
   final CellRange range;
   final Map<CellAddress, Cell> cells;
   final bool cut;
+
+  /// Merges inside the copy, relative to its top left corner too.
+  final List<CellRange> merges;
 }
 
 /// Everything the editor changes in the open workbook goes through here, so
@@ -110,12 +119,14 @@ class WorkbookController extends ChangeNotifier {
       _displays.clear();
       _displaysRevision = _revision;
     }
-    return _displays[cellKey(index, address)] ??= formatValue(
-      valueAt(address, index),
-      _workbook.sheets[index].cellAt(address).style.format,
-      locale(),
-    );
+    return _displays[cellKey(index, address)] ??= _format(index, address);
   }
+
+  String _format(int sheetIndex, CellAddress address) => formatValue(
+    valueAt(address, sheetIndex),
+    _workbook.sheets[sheetIndex].cellAt(address).style.format,
+    locale(),
+  );
 
   String editTextAt(CellAddress address) => editText(cellAt(address), locale());
 
@@ -406,7 +417,7 @@ class WorkbookController extends ChangeNotifier {
         }
         final text = query.inFormulas
             ? editText(cell, locale())
-            : displayAt(address);
+            : _displays[cellKey(_active, address)] ?? _format(_active, address);
         if (query.matches(text)) found.add(address);
       });
       found.sort();
@@ -676,7 +687,20 @@ class WorkbookController extends ChangeNotifier {
         address,
       );
     }
-    _clip = CellClip(_active, range, cells, cut: cut);
+    _clip = CellClip(
+      _active,
+      range,
+      cells,
+      cut: cut,
+      merges: [
+        for (final merge in sheet.merges)
+          if (range.contains(merge.first) && range.contains(merge.last))
+            CellRange(
+              merge.first.offset(-range.first.column, -range.first.row),
+              merge.last.offset(-range.first.column, -range.first.row),
+            ),
+      ],
+    );
     notifyListeners();
   }
 
@@ -724,11 +748,49 @@ class WorkbookController extends ChangeNotifier {
       }
     }
     if (clip.cut) _clip = null;
-    final last = target.first.offset(
-      clip.range.columns * repeatColumns - 1,
-      clip.range.rows * repeatRows - 1,
+    final last = clampAddress(
+      target.first.offset(
+        clip.range.columns * repeatColumns - 1,
+        clip.range.rows * repeatRows - 1,
+      ),
     );
-    _selection = Selection(target.first, clampAddress(last));
+    final pasted = CellRange(target.first, last);
+    final source = clip.cut && clip.sheet == _active ? clip.range : null;
+    if (clip.merges.isNotEmpty ||
+        sheet.merges.any(
+          (m) =>
+              m.intersects(pasted) || (source != null && m.intersects(source)),
+        )) {
+      change
+        ..mergesBefore = sheet.merges
+        ..mergesAfter = [
+          for (final merge in sheet.merges)
+            if (!merge.intersects(pasted) &&
+                (source == null || !merge.intersects(source)))
+              merge,
+          for (var rx = 0; rx < repeatColumns; rx++)
+            for (var ry = 0; ry < repeatRows; ry++)
+              for (final merge in clip.merges)
+                if (merge.last
+                    .offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    )
+                    .isValid)
+                  CellRange(
+                    merge.first.offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    ),
+                    merge.last.offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    ),
+                  ),
+        ];
+      sheet.merges = change.mergesAfter!;
+    }
+    _selection = Selection(target.first, last);
     _commit(change);
   }
 

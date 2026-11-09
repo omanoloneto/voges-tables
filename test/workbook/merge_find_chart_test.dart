@@ -80,6 +80,26 @@ void main() {
       expect(c.sheet.merges, [range('A3:B4')]);
     });
 
+    test('copy and paste carry the merges, cut moves them', () {
+      final c = controller();
+      c.enter(at('A1'), 'x');
+      c.select(select('A1:B1'));
+      c.mergeSelection();
+      c.select(select('A1:B2'));
+      c.copy();
+      c.select(Selection.single(at('D5')));
+      c.paste();
+      expect(c.sheet.merges, [range('A1:B1'), range('D5:E5')]);
+      expect(c.displayAt(at('D5')), 'x');
+      c.undo();
+      expect(c.sheet.merges, [range('A1:B1')]);
+      c.select(select('A1:B2'));
+      c.copy(cut: true);
+      c.select(Selection.single(at('A4')));
+      c.paste();
+      expect(c.sheet.merges, [range('A4:B4')]);
+    });
+
     test('unmerging splits the merges under the selection', () {
       final c = controller();
       c.select(select('A1:B1'));
