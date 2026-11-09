@@ -1,10 +1,26 @@
 import '../sheet/cell_address.dart';
 
-/// A cell of the workbook.
-typedef CellKey = ({int sheet, CellAddress address});
+/// A cell of the workbook, packed in one integer: maps keyed by it hash and
+/// compare much faster than by a record, and the calculator lives on them.
+/// The row takes the low bits, which the hash tables use the most.
+extension type const CellKey._(int _bits) implements Object {
+  CellKey(int sheet, CellAddress address)
+    : _bits =
+          sheet << 34 |
+          address.column << 20 |
+          (address.row ^ _spread(address.column));
 
-CellKey cellKey(int sheet, CellAddress address) =>
-    (sheet: sheet, address: address);
+  int get sheet => _bits >> 34;
+  int get column => _bits >> 20 & 0x3FFF;
+  int get row => (_bits ^ _spread(column)) & 0xFFFFF;
+
+  /// Mixes the column into the low bits too, so a long row of cells does
+  /// not land in the same buckets.
+  static int _spread(int column) => column * 0x9E3779B1 & 0xFFFFF;
+  CellAddress get address => CellAddress(column, row);
+}
+
+CellKey cellKey(int sheet, CellAddress address) => CellKey(sheet, address);
 
 class _Area {
   _Area(this.formula, this.sheet, this.range);
@@ -19,7 +35,8 @@ class DependencyGraph {
   // Ranges wider than this go to one list per sheet instead of per column.
   static const _maxIndexedColumns = 64;
 
-  final _points = <CellKey, Set<CellKey>>{};
+  // Most cells have one reader: it is kept as is, and a set only for more.
+  final _points = <CellKey, Object>{};
   final _byColumn = <int, Map<int, Set<_Area>>>{};
   final _wide = <int, Set<_Area>>{};
   final _registered = <CellKey, (List<CellKey>, List<_Area>)>{};
@@ -31,7 +48,14 @@ class DependencyGraph {
     for (final (sheet, range) in precedents) {
       if (range.isSingle) {
         final key = cellKey(sheet, range.first);
-        (_points[key] ??= {}).add(formula);
+        final readers = _points[key];
+        if (readers == null) {
+          _points[key] = formula;
+        } else if (readers is Set<CellKey>) {
+          readers.add(formula);
+        } else if (readers != formula) {
+          _points[key] = <CellKey>{readers as CellKey, formula};
+        }
         points.add(key);
         continue;
       }
@@ -55,8 +79,12 @@ class DependencyGraph {
     final (points, areas) = registered;
     for (final key in points) {
       final readers = _points[key];
-      readers?.remove(formula);
-      if (readers != null && readers.isEmpty) _points.remove(key);
+      if (readers is Set<CellKey>) {
+        readers.remove(formula);
+        if (readers.length == 1) _points[key] = readers.first;
+      } else if (readers == formula) {
+        _points.remove(key);
+      }
     }
     for (final area in areas) {
       final range = area.range;
@@ -73,14 +101,26 @@ class DependencyGraph {
 
   /// The formulas that read the cell [key].
   Set<CellKey> dependentsOf(CellKey key) {
-    final (:sheet, :address) = key;
-    final result = <CellKey>{...?_points[key]};
-    for (final area in [
-      ...?_byColumn[sheet]?[address.column],
-      ...?_wide[sheet],
-    ]) {
-      if (area.range.contains(address)) result.add(area.formula);
+    final sheet = key.sheet, column = key.column, row = key.row;
+    final readers = _points[key];
+    final result = readers is Set<CellKey>
+        ? {...readers}
+        : <CellKey>{?(readers as CellKey?)};
+    void collect(Set<_Area>? areas) {
+      if (areas == null) return;
+      for (final area in areas) {
+        final range = area.range;
+        if (column >= range.first.column &&
+            column <= range.last.column &&
+            row >= range.first.row &&
+            row <= range.last.row) {
+          result.add(area.formula);
+        }
+      }
     }
+
+    collect(_byColumn[sheet]?[column]);
+    collect(_wide[sheet]);
     return result;
   }
 

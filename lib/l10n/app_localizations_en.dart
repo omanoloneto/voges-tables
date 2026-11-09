@@ -284,4 +284,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String sheetName(int number) {
     return 'Sheet$number';
   }
+
+  @override
+  String get insertCells => 'Insert';
+
+  @override
+  String get deleteCells => 'Delete';
+
+  @override
+  String get insertRows => 'Insert rows';
+
+  @override
+  String get insertColumns => 'Insert columns';
+
+  @override
+  String get deleteRows => 'Delete rows';
+
+  @override
+  String get deleteColumns => 'Delete columns';
+
+  @override
+  String get insertNoRoom =>
+      'There is no room: the last rows or columns of the sheet have data.';
 }

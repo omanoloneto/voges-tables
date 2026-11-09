@@ -1,13 +1,10 @@
 import 'package:flutter/foundation.dart';
 
-import '../formula/calculator.dart';
-import '../formula/format.dart';
-import '../formula/input.dart';
-import '../formula/locale.dart';
-import '../formula/references.dart';
+import '../formula/formula.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/cell_style.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
 import 'selection.dart';
 import 'undo_history.dart';
@@ -187,18 +184,25 @@ class WorkbookController extends ChangeNotifier {
 
   // Editing cells.
 
+  /// Records a write; [_commit] makes them all at once, so the calculator
+  /// evaluates the dependents a single time.
   void _write(Change change, CellAddress address, Cell cell) {
     final current = sheet.cellAt(address);
     change.before.putIfAbsent(address, () => current);
     change.after[address] = cell;
-    _calculator.setCell(_active, address, cell);
   }
 
   void _commit(Change change) {
     if (change.isEmpty) return;
+    _apply(change.sheet, change.after);
     _history.record(change);
     _changed();
   }
+
+  void _apply(int sheet, Map<CellAddress, Cell> cells) => _calculator.setCells({
+    for (final MapEntry(:key, :value) in cells.entries)
+      cellKey(sheet, key): value,
+  });
 
   /// What the user typed in [address]. A suggested format (typing `10%` or a
   /// date) is applied only while the cell still has the general format.
@@ -281,13 +285,21 @@ class WorkbookController extends ChangeNotifier {
 
   void redo() => _replay(_history.takeRedo(), back: false);
 
-  void _replay(Change? change, {required bool back}) {
-    if (change == null) return;
-    showSheet(change.sheet);
+  void _replay(HistoryEntry? entry, {required bool back}) {
+    if (entry == null) return;
+    showSheet(entry.sheet);
+    switch (entry) {
+      case Change():
+        _replayCells(entry, back: back);
+      case StructureChange():
+        _replayStructure(entry, back: back);
+    }
+    _changed();
+  }
+
+  void _replayCells(Change change, {required bool back}) {
     final cells = back ? change.before : change.after;
-    cells.forEach(
-      (address, cell) => _calculator.setCell(change.sheet, address, cell),
-    );
+    _apply(change.sheet, cells);
     void sizes(Map<int, double?> values, Map<int, double> target) =>
         values.forEach((index, size) {
           if (size == null) {
@@ -303,7 +315,85 @@ class WorkbookController extends ChangeNotifier {
       final keys = cells.keys.toList()..sort();
       _selection = Selection(keys.first, keys.last);
     }
+  }
+
+  /// Undo runs the opposite edit, then puts back the texts it could not
+  /// rebuild (references that became `#REF!` or ranges that lost cells) and
+  /// the deleted cells.
+  void _replayStructure(StructureChange change, {required bool back}) {
+    final target = _workbook.sheets[change.sheet];
+    if (!back) {
+      change.result = _calculator.changeStructure(change.edit)!;
+      target.moveLayout(change.edit);
+      return;
+    }
+    final edit = change.edit, inverse = edit.inverse;
+    _calculator.changeStructure(inverse);
+    final fixes = <CellKey, Cell>{};
+    change.result.rewritten.forEach((key, text) {
+      final address = key.sheet == edit.sheet
+          ? inverse.moveCell(key.address)
+          : key.address;
+      if (address == null) return;
+      final cell = _workbook.sheets[key.sheet].cellAt(address);
+      if (cell.input != text) {
+        fixes[cellKey(key.sheet, address)] = cell.copyWith(input: text);
+      }
+    });
+    change.result.removed.forEach(
+      (address, cell) => fixes[cellKey(edit.sheet, address)] = cell,
+    );
+    _calculator.setCells(fixes);
+    change.layout.restore(target);
+  }
+
+  // Rows and columns.
+
+  bool get wholeRowsSelected =>
+      _selection.range.columns == CellAddress.maxColumns;
+  bool get wholeColumnsSelected => _selection.range.rows == CellAddress.maxRows;
+
+  /// Inserts as many rows as the selection has, above it. False when that
+  /// would push filled cells off the end of the sheet.
+  bool insertRows() => _changeStructure(
+    SheetAxis.rows,
+    _selection.range.first.row,
+    _selection.range.rows,
+  );
+
+  bool insertColumns() => _changeStructure(
+    SheetAxis.columns,
+    _selection.range.first.column,
+    _selection.range.columns,
+  );
+
+  void deleteRows() => _changeStructure(
+    SheetAxis.rows,
+    _selection.range.first.row,
+    -_selection.range.rows,
+  );
+
+  void deleteColumns() => _changeStructure(
+    SheetAxis.columns,
+    _selection.range.first.column,
+    -_selection.range.columns,
+  );
+
+  bool _changeStructure(SheetAxis axis, int at, int count) {
+    final edit = StructureEdit(
+      sheet: _active,
+      axis: axis,
+      at: at,
+      count: count,
+    );
+    final layout = SheetLayout.of(sheet);
+    final result = _calculator.changeStructure(edit);
+    if (result == null) return false;
+    sheet.moveLayout(edit);
+    _clip = null;
+    _history.record(StructureChange(edit, layout, result));
     _changed();
+    return true;
   }
 
   // Clipboard.

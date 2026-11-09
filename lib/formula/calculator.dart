@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../sheet/cell_address.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
 import 'ast.dart';
 import 'cell_source.dart';
@@ -10,12 +11,39 @@ import 'evaluator.dart';
 import 'functions/registry.dart';
 import 'locale.dart';
 import 'parser.dart';
+import 'references.dart';
 
 class _Formula {
-  _Formula(this.sheet, this.address, this.expr);
+  _Formula(
+    this.sheet,
+    this.address,
+    this.expr,
+    this.references,
+    this.positional,
+  );
   final int sheet;
   final CellAddress address;
   final Expr expr;
+
+  /// Every reference with the index of its sheet, -1 for an unknown sheet.
+  final List<(int, CellRange)> references;
+
+  /// Uses ROW or COLUMN, whose result depends on where things are.
+  final bool positional;
+}
+
+const _positionalFunctions = {'ROW', 'COLUMN'};
+
+/// What [Calculator.changeStructure] did, to undo it.
+class StructureResult {
+  StructureResult(this.rewritten, this.removed);
+
+  /// The formulas whose text changed, by where they are now, with the text
+  /// they had before.
+  final Map<CellKey, String> rewritten;
+
+  /// The deleted cells, where they were.
+  final Map<CellAddress, Cell> removed;
 }
 
 /// Keeps every formula of a [Workbook] calculated. After [setCell] only the
@@ -73,17 +101,165 @@ class Calculator {
     return cell.constant;
   }
 
-  void setCell(int sheetIndex, CellAddress address, Cell cell) {
-    if (sheetIndex < 0 || sheetIndex >= workbook.sheets.length) return;
-    final sheet = workbook.sheets[sheetIndex];
-    final old = sheet.cellAt(address);
-    sheet.setCell(address, cell);
-    if (old.input == cell.input && old.constant == cell.constant) return;
-    final key = cellKey(sheetIndex, address);
-    _unregister(key);
-    if (cell.isFormula) _register(sheetIndex, address, cell.input);
-    _grow(sheetIndex, address);
-    _recalculate([key, ..._volatile]);
+  void setCell(int sheetIndex, CellAddress address, Cell cell) =>
+      setCells({cellKey(sheetIndex, address): cell});
+
+  /// Writes many cells and calculates what depends on them once, so pasting
+  /// or filling thousands of cells does not walk the dependents per cell.
+  void setCells(Map<CellKey, Cell> cells) {
+    final roots = <CellKey>[];
+    cells.forEach((key, cell) {
+      final sheet = key.sheet, address = key.address;
+      if (sheet < 0 || sheet >= workbook.sheets.length) return;
+      final target = workbook.sheets[sheet];
+      final old = target.cellAt(address);
+      target.setCell(address, cell);
+      if (old.input == cell.input && old.constant == cell.constant) return;
+      _unregister(key);
+      if (cell.isFormula) _register(sheet, address, cell.input);
+      _grow(sheet, address);
+      roots.add(key);
+    });
+    if (roots.isEmpty) return;
+    _recalculate([...roots, ..._volatile]);
+  }
+
+  /// Inserts or deletes rows or columns: moves the cells of the sheet,
+  /// rewrites every reference to them in the workbook and evaluates only the
+  /// formulas whose result can change. Null when inserting would push
+  /// filled cells off the sheet.
+  StructureResult? changeStructure(StructureEdit edit) {
+    final s = edit.sheet;
+    if (s < 0 || s >= workbook.sheets.length) return null;
+    final sheet = workbook.sheets[s];
+    final rows = edit.axis == SheetAxis.rows;
+    if (edit.isInsert) {
+      final corner = sheet.usedRange?.last;
+      final last = corner == null ? -1 : (rows ? corner.row : corner.column);
+      if (edit.count >= edit.limit || last + edit.count >= edit.limit) {
+        return null;
+      }
+    }
+    final targetName = sheet.name.toLowerCase();
+    final rewritten = <CellKey, String>{};
+    final newTexts = <CellKey, String>{};
+    final newExprs = <CellKey, Expr>{};
+    final reevaluate = <CellKey>{};
+    bool targets(String? name, int formulaSheet) =>
+        name == null ? formulaSheet == s : name.toLowerCase() == targetName;
+
+    for (final formula in _formulas.values) {
+      final moves = formula.sheet == s;
+      var touched = false, reshaped = false;
+      for (final (target, range) in formula.references) {
+        if (target != s) continue;
+        final high = rows ? range.last.row : range.last.column;
+        if (high < edit.at) continue;
+        touched = true;
+        if (!edit.translatesRange(range)) reshaped = true;
+      }
+      final newAddress = moves
+          ? edit.moveCell(formula.address)
+          : formula.address;
+      if (newAddress == null) continue;
+      final newKey = cellKey(formula.sheet, newAddress);
+      if (reshaped ||
+          (formula.positional && (touched || newAddress != formula.address))) {
+        reevaluate.add(newKey);
+      }
+      if (!touched) continue;
+      final input =
+          workbook.sheets[formula.sheet].cells[formula.address]!.input;
+      final text = adjustReferences(
+        input,
+        edit,
+        targets: (name) => targets(name, formula.sheet),
+      );
+      if (identical(text, input)) continue;
+      rewritten[newKey] = input;
+      newTexts[newKey] = text;
+      final expr = _moveExpr(
+        formula.expr,
+        edit,
+        (name) => targets(name, formula.sheet),
+      );
+      if (expr != null) newExprs[newKey] = expr;
+    }
+
+    final removed = <CellAddress, Cell>{};
+    final moved = <CellAddress, Cell>{};
+    sheet.cells.forEach((address, cell) {
+      final to = edit.moveCell(address);
+      if (to == null) {
+        removed[address] = cell;
+      } else {
+        moved[to] = cell;
+      }
+    });
+    newTexts.forEach((key, text) {
+      final target = key.sheet == s ? moved : workbook.sheets[key.sheet].cells;
+      final cell = target[key.address]!;
+      final updated = cell.copyWith(input: text);
+      if (key.sheet == s) {
+        moved[key.address] = updated;
+      } else {
+        workbook.sheets[key.sheet].setCell(key.address, updated);
+      }
+    });
+    sheet.replaceCells(moved);
+
+    final stale = <CellKey>[];
+    final renamed = <CellKey, _Formula>{};
+    for (final MapEntry(:key, value: formula) in _formulas.entries) {
+      final newAddress = formula.sheet == s
+          ? edit.moveCell(formula.address)
+          : formula.address;
+      final newKey = newAddress == null
+          ? null
+          : cellKey(formula.sheet, newAddress);
+      final text = newKey == null ? null : newTexts[newKey];
+      if (newKey == key && text == null) continue;
+      stale.add(key);
+      if (newKey == null) continue;
+      final expr = newExprs[newKey];
+      renamed[newKey] = text == null
+          ? _Formula(
+              formula.sheet,
+              newAddress!,
+              formula.expr,
+              formula.references,
+              formula.positional,
+            )
+          : expr != null
+          ? _described(formula.sheet, newAddress!, expr)
+          : _parsed(formula.sheet, newAddress!, text);
+    }
+    final relinkAll = stale.length * 4 > _formulas.length;
+    if (relinkAll) _graph.clear();
+    final values = <CellKey, CellValue>{};
+    final volatile = <CellKey>{};
+    for (final key in stale) {
+      if (!relinkAll) _graph.remove(key);
+      final value = _values.remove(key);
+      final wasVolatile = _volatile.remove(key);
+      _formulas.remove(key);
+      final address = key.sheet == s ? edit.moveCell(key.address) : key.address;
+      if (address == null) continue;
+      final newKey = cellKey(key.sheet, address);
+      if (value != null) values[newKey] = value;
+      if (wasVolatile) volatile.add(newKey);
+    }
+    _values.addAll(values);
+    _volatile.addAll(volatile);
+    renamed.forEach((key, formula) => _formulas[key] = formula);
+    if (relinkAll) {
+      _formulas.forEach(_link);
+    } else {
+      renamed.forEach(_link);
+    }
+    _corners[s] = sheet.usedRange?.last;
+    _recalculate([...reevaluate, ..._volatile]);
+    return StructureResult(rewritten, removed);
   }
 
   /// Reads every formula again from the workbook and evaluates them all.
@@ -122,22 +298,108 @@ class Calculator {
   }
 
   void _register(int sheet, CellAddress address, String input) {
-    final expr = parseFormula(input);
     final key = cellKey(sheet, address);
-    _formulas[key] = _Formula(sheet, address, expr);
-    final precedents = <(int, CellRange)>[];
-    for (final node in expr.nodes) {
-      if (node is ReferenceExpr) {
-        final name = node.sheet;
-        final target = name == null ? sheet : workbook.indexOf(name);
-        if (target >= 0) precedents.add((target, node.range));
-      } else if (node is CallExpr &&
-          (functionRegistry[node.name]?.volatile ?? false)) {
-        _volatile.add(key);
+    final formula = _parsed(sheet, address, input);
+    _formulas[key] = formula;
+    _link(key, formula);
+  }
+
+  _Formula _parsed(int sheet, CellAddress address, String input) =>
+      _described(sheet, address, parseFormula(input));
+
+  _Formula _described(int sheet, CellAddress address, Expr expr) {
+    final references = <(int, CellRange)>[];
+    var positional = false;
+    void visit(Expr node) {
+      switch (node) {
+        case ReferenceExpr(sheet: final name, :final range):
+          references.add((
+            name == null ? sheet : workbook.indexOf(name),
+            range,
+          ));
+        case UnaryExpr(:final operand):
+          visit(operand);
+        case BinaryExpr(:final left, :final right):
+          visit(left);
+          visit(right);
+        case CallExpr(:final name, :final arguments):
+          if (_positionalFunctions.contains(name)) positional = true;
+          for (final argument in arguments) {
+            visit(argument);
+          }
+        default:
+          break;
       }
     }
-    _graph.add(key, precedents);
+
+    visit(expr);
+    return _Formula(sheet, address, expr, references, positional);
   }
+
+  void _link(CellKey key, _Formula formula) {
+    if (_isVolatile(formula.expr)) _volatile.add(key);
+    _graph.add(key, [
+      for (final reference in formula.references)
+        if (reference.$1 >= 0) reference,
+    ]);
+  }
+
+  /// [node] with its references moved by [edit], the same instance when
+  /// nothing moves, or null when one becomes `#REF!`. Follows exactly what
+  /// [adjustReferences] does to the text, so the formula is not parsed again.
+  static Expr? _moveExpr(
+    Expr node,
+    StructureEdit edit,
+    bool Function(String? sheet) targets,
+  ) {
+    switch (node) {
+      case ReferenceExpr(:final sheet, :final range):
+        if (!targets(sheet)) return node;
+        final rows = edit.axis == SheetAxis.rows;
+        if (rows ? node.wholeColumns : node.wholeRows) return node;
+        final moved = edit.moveRange(range);
+        if (moved == null) return null;
+        if (moved == range) return node;
+        return ReferenceExpr(
+          sheet,
+          moved,
+          wholeColumns: node.wholeColumns,
+          wholeRows: node.wholeRows,
+        );
+      case UnaryExpr(:final operator, :final operand):
+        final moved = _moveExpr(operand, edit, targets);
+        if (moved == null) return null;
+        return identical(moved, operand) ? node : UnaryExpr(operator, moved);
+      case BinaryExpr(:final operator, :final left, :final right):
+        final a = _moveExpr(left, edit, targets);
+        final b = _moveExpr(right, edit, targets);
+        if (a == null || b == null) return null;
+        return identical(a, left) && identical(b, right)
+            ? node
+            : BinaryExpr(operator, a, b);
+      case CallExpr(:final name, :final arguments):
+        List<Expr>? moved;
+        for (var i = 0; i < arguments.length; i++) {
+          final argument = _moveExpr(arguments[i], edit, targets);
+          if (argument == null) return null;
+          if (!identical(argument, arguments[i])) {
+            (moved ??= [...arguments])[i] = argument;
+          }
+        }
+        return moved == null ? node : CallExpr(name, moved);
+      default:
+        return node;
+    }
+  }
+
+  static bool _isVolatile(Expr node) => switch (node) {
+    UnaryExpr(:final operand) => _isVolatile(operand),
+    BinaryExpr(:final left, :final right) =>
+      _isVolatile(left) || _isVolatile(right),
+    CallExpr(:final name, :final arguments) =>
+      (functionRegistry[name]?.volatile ?? false) || arguments.any(_isVolatile),
+    _ => false,
+  };
 
   void _unregister(CellKey key) {
     _values.remove(key);

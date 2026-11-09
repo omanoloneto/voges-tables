@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
 import '../sheet/cell_style.dart';
+import '../sheet/structure.dart';
 import '../shell/platform.dart';
 import '../shell/ribbon_controls.dart';
 import '../shell/ribbon_style.dart';
@@ -13,12 +14,16 @@ class RibbonActions {
     required this.cut,
     required this.paste,
     required this.autoSum,
+    required this.insert,
+    required this.delete,
   });
 
   final VoidCallback copy;
   final VoidCallback cut;
   final VoidCallback paste;
   final VoidCallback autoSum;
+  final ValueChanged<SheetAxis> insert;
+  final ValueChanged<SheetAxis> delete;
 }
 
 /// Colors offered for text and fill, the classic office palette.
@@ -424,7 +429,38 @@ class Ribbon extends StatelessWidget {
             tooltip: l10n.clearFormats,
             onPressed: controller.clearFormats,
           ),
-          const SizedBox(width: 34),
+          RibbonMenuIconButton(
+            icon: Icons.add_box_outlined,
+            tooltip: l10n.insertCells,
+            items: [
+              RibbonMenuItem(
+                Icons.table_rows_outlined,
+                '${l10n.insertRows} (${shortcutLabel('+', shift: true)})',
+                () => actions.insert(SheetAxis.rows),
+              ),
+              RibbonMenuItem(
+                Icons.view_column_outlined,
+                l10n.insertColumns,
+                () => actions.insert(SheetAxis.columns),
+              ),
+            ],
+          ),
+          RibbonMenuIconButton(
+            icon: Icons.indeterminate_check_box_outlined,
+            tooltip: l10n.deleteCells,
+            items: [
+              RibbonMenuItem(
+                Icons.table_rows_outlined,
+                '${l10n.deleteRows} (${shortcutLabel('-', shift: true)})',
+                () => actions.delete(SheetAxis.rows),
+              ),
+              RibbonMenuItem(
+                Icons.view_column_outlined,
+                l10n.deleteColumns,
+                () => actions.delete(SheetAxis.columns),
+              ),
+            ],
+          ),
         ],
       ),
     ],

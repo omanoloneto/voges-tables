@@ -1,11 +1,20 @@
+import '../formula/formula.dart';
 import '../sheet/cell_address.dart';
+import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
+
+/// Something that undo can take back.
+sealed class HistoryEntry {
+  int get sheet;
+  bool get isEmpty;
+}
 
 /// One change that can be undone: the cells of one sheet before and after,
 /// plus sizes of columns and rows.
-class Change {
+class Change extends HistoryEntry {
   Change(this.sheet);
 
+  @override
   final int sheet;
   final Map<CellAddress, Cell> before = {};
   final Map<CellAddress, Cell> after = {};
@@ -14,34 +23,51 @@ class Change {
   final Map<int, double?> heightsBefore = {};
   final Map<int, double?> heightsAfter = {};
 
+  @override
   bool get isEmpty =>
       after.isEmpty && widthsAfter.isEmpty && heightsAfter.isEmpty;
+}
+
+/// Rows or columns inserted or deleted, with what undo needs to put back:
+/// the layout of the sheet before and what the calculator rewrote.
+class StructureChange extends HistoryEntry {
+  StructureChange(this.edit, this.layout, this.result);
+
+  final StructureEdit edit;
+  final SheetLayout layout;
+  StructureResult result;
+
+  @override
+  int get sheet => edit.sheet;
+
+  @override
+  bool get isEmpty => false;
 }
 
 class UndoHistory {
   static const limit = 200;
 
-  final List<Change> _undo = [];
-  final List<Change> _redo = [];
+  final List<HistoryEntry> _undo = [];
+  final List<HistoryEntry> _redo = [];
 
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
 
-  void record(Change change) {
+  void record(HistoryEntry change) {
     if (change.isEmpty) return;
     _undo.add(change);
     if (_undo.length > limit) _undo.removeAt(0);
     _redo.clear();
   }
 
-  Change? takeUndo() {
+  HistoryEntry? takeUndo() {
     if (_undo.isEmpty) return null;
     final change = _undo.removeLast();
     _redo.add(change);
     return change;
   }
 
-  Change? takeRedo() {
+  HistoryEntry? takeRedo() {
     if (_redo.isEmpty) return null;
     final change = _redo.removeLast();
     _undo.add(change);

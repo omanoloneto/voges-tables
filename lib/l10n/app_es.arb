@@ -88,5 +88,12 @@
   "deleteSheetMessage": "¿Eliminar la hoja \"{name}\"? No se puede deshacer.",
   "saveAsFormat": "Guardar como {format}",
   "saveChangesMessage": "¿Desea guardar los cambios en \"{name}\"?",
-  "sheetName": "Hoja{number}"
+  "sheetName": "Hoja{number}",
+  "insertCells": "Insertar",
+  "deleteCells": "Eliminar",
+  "insertRows": "Insertar filas",
+  "insertColumns": "Insertar columnas",
+  "deleteRows": "Eliminar filas",
+  "deleteColumns": "Eliminar columnas",
+  "insertNoRoom": "No hay espacio: las últimas filas o columnas de la hoja tienen datos."
 }

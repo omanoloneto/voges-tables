@@ -52,9 +52,19 @@ class MissingExpr extends Expr {
 /// A cell or range, on the formula's own sheet when [sheet] is null. Whole
 /// columns and rows span every row or column of the sheet.
 class ReferenceExpr extends Expr {
-  const ReferenceExpr(this.sheet, this.range);
+  const ReferenceExpr(
+    this.sheet,
+    this.range, {
+    this.wholeColumns = false,
+    this.wholeRows = false,
+  });
   final String? sheet;
   final CellRange range;
+
+  /// Written as `A:C`, without rows, or as `1:3`, without columns: moving
+  /// rows leaves `A:C` as it is, and moving columns leaves `1:3`.
+  final bool wholeColumns;
+  final bool wholeRows;
 }
 
 /// An identifier that is neither a function nor a reference.
