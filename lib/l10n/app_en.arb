@@ -1,0 +1,120 @@
+{
+  "@@locale": "en",
+  "addSheet": "Add sheet",
+  "alignBottom": "Align bottom",
+  "alignCenter": "Center",
+  "alignLeft": "Align left",
+  "alignMiddle": "Align middle",
+  "alignRight": "Align right",
+  "alignTop": "Align top",
+  "alignmentGroup": "Alignment",
+  "allBorders": "All borders",
+  "apply": "Apply",
+  "autoSum": "AutoSum",
+  "autoSumHint": "Sum of the numbers above or to the left",
+  "automaticColor": "Automatic",
+  "average": "Average",
+  "bold": "Bold",
+  "bottomBorder": "Bottom border",
+  "cancel": "Cancel",
+  "cellsGroup": "Cells",
+  "clearContents": "Clear contents",
+  "clearFormats": "Clear formats",
+  "clipboardGroup": "Clipboard",
+  "close": "Close",
+  "copy": "Copy",
+  "count": "Count",
+  "csvOnlyActiveSheet": "CSV keeps only the values of the open sheet.",
+  "cut": "Cut",
+  "dataGroup": "Data",
+  "deleteSheet": "Delete sheet",
+  "dontSave": "Don't save",
+  "fewerDecimals": "Fewer decimals",
+  "fileMenu": "File",
+  "fillColor": "Fill color",
+  "fontGroup": "Font",
+  "fontSize": "Font size",
+  "formatCurrency": "Currency",
+  "formatDate": "Date",
+  "formatDateTime": "Date and time",
+  "formatGeneral": "General",
+  "formatNumber": "Number",
+  "formatPercent": "Percentage",
+  "formatText": "Text",
+  "formatTime": "Time",
+  "formulaBarHint": "Type a value or a formula, like =SUM(A1:A5)",
+  "freezePanes": "Freeze above and left of the active cell",
+  "freezeTopRow": "Freeze top row",
+  "invalidSheetName": "Up to 31 characters, without : \\ / ? * [ ]",
+  "italic": "Italic",
+  "language": "Language",
+  "maximize": "Maximize",
+  "minimize": "Minimize",
+  "moreDecimals": "More decimals",
+  "newFile": "New",
+  "noBorders": "No borders",
+  "noFill": "No fill",
+  "nothingToPaste": "Nothing to paste.",
+  "numberFormat": "Number format",
+  "numberGroup": "Number",
+  "openFailed": "This file could not be opened.",
+  "openFile": "Open",
+  "openFileTitle": "Open spreadsheet",
+  "paste": "Paste",
+  "redo": "Redo",
+  "renameSheet": "Rename sheet",
+  "restore": "Restore",
+  "save": "Save",
+  "saveAs": "Save as",
+  "saveChangesTitle": "Save changes?",
+  "saveFailed": "The file could not be saved.",
+  "saveFileTitle": "Save spreadsheet",
+  "sheetNameTaken": "Another sheet already has this name.",
+  "sortAscending": "Sort A to Z",
+  "sortDescending": "Sort Z to A",
+  "strikethrough": "Strikethrough",
+  "sum": "Sum",
+  "systemLanguage": "System language",
+  "textColor": "Text color",
+  "underline": "Underline",
+  "undo": "Undo",
+  "unfreeze": "Unfreeze",
+  "unsavedChanges": "Unsaved changes",
+  "unsupportedFormat": "This kind of file can't be opened yet. Save it as .xlsx or .csv in the other program.",
+  "untitled": "Untitled",
+  "wrapText": "Wrap text",
+  "zoomIn": "Zoom in",
+  "zoomOut": "Zoom out",
+  "deleteSheetMessage": "Delete the sheet \"{name}\"? This can't be undone.",
+  "@deleteSheetMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "saveAsFormat": "Save as {format}",
+  "@saveAsFormat": {
+    "placeholders": {
+      "format": {
+        "type": "String"
+      }
+    }
+  },
+  "saveChangesMessage": "Do you want to save the changes to \"{name}\"?",
+  "@saveChangesMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sheetName": "Sheet{number}",
+  "@sheetName": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  }
+}
