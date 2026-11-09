@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Name=Voges Tables
+GenericName=Spreadsheet
+GenericName[pt]=Planilha
+GenericName[pt_BR]=Planilha
+GenericName[es]=Hoja de cálculo
+Comment=Create and edit Excel and CSV spreadsheets
+Comment[pt]=Crie e edite planilhas do Excel e CSV
+Comment[pt_BR]=Crie e edite planilhas do Excel e CSV
+Comment[es]=Crea y edita hojas de cálculo de Excel y CSV
+Exec=voges-tables %f
+Icon=com.omanoloneto.voges_tables
+Terminal=false
+Categories=Office;Spreadsheet;
+MimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel.sheet.macroEnabled.12;text/csv;text/tab-separated-values;
+Keywords=spreadsheet;excel;xlsx;csv;table;formula;
+Keywords[pt]=planilha;excel;xlsx;csv;tabela;fórmula;
+Keywords[pt_BR]=planilha;excel;xlsx;csv;tabela;fórmula;
+Keywords[es]=hoja de cálculo;excel;xlsx;csv;tabla;fórmula;
+StartupWMClass=com.omanoloneto.voges_tables
