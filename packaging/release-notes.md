@@ -7,8 +7,12 @@ Voges Tables: a simple spreadsheet for macOS, Windows and Linux. Part of the Vog
 - References to cells, ranges, whole columns and rows and other sheets; only the cells that depend on a change are calculated again.
 - Bold, italic, underline, strikethrough, font size, text and fill colors, alignment, wrap text, borders and number formats.
 - Copy, cut and paste, also from other programs; the fill handle, AutoSum, sorting, and undo and redo for every change.
-- Several sheets per file, resizable columns and rows, and frozen rows and columns.
-- Opens `.xlsx`, `.xlsm` (without the macros), `.csv`, `.tsv` and `.txt`; saves `.xlsx` and `.csv`.
+- Insert and delete rows and columns; formulas in every sheet follow, as in Excel.
+- Merge & Center, and Find and Replace with match case, whole cell, wildcards and a search in formulas.
+- Column, bar, line, area, pie and scatter charts that you move and resize over the cells.
+- Several sheets per file, resizable columns and rows, and frozen rows and columns. Renaming a sheet keeps the formulas and charts that read it working.
+- Opens `.xlsx`, `.xlsm` (without the macros), `.csv`, `.tsv` and `.txt`; saves `.xlsx` and `.csv`. Merged cells and charts are kept in `.xlsx`.
+- Made to stay fast on big sheets: only what changes is calculated again, also when rows and columns are inserted or deleted.
 - The status bar shows the sum, the average and the count of the selected cells, and the zoom from 25% to 400%.
 - Warns before closing or opening another file with unsaved changes.
 - Shows up in "Open with" for the spreadsheet files it opens, without becoming the default app.
