@@ -97,6 +97,23 @@ class CellRange {
       cell.row >= first.row &&
       cell.row <= last.row;
 
+  bool intersects(CellRange other) =>
+      other.first.column <= last.column &&
+      other.last.column >= first.column &&
+      other.first.row <= last.row &&
+      other.last.row >= first.row;
+
+  CellRange union(CellRange other) => CellRange(
+    CellAddress(
+      first.column < other.first.column ? first.column : other.first.column,
+      first.row < other.first.row ? first.row : other.first.row,
+    ),
+    CellAddress(
+      last.column > other.last.column ? last.column : other.last.column,
+      last.row > other.last.row ? last.row : other.last.row,
+    ),
+  );
+
   Iterable<CellAddress> get cells sync* {
     for (var row = first.row; row <= last.row; row++) {
       for (var column = first.column; column <= last.column; column++) {
