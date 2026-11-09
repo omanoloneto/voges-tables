@@ -125,5 +125,6 @@
   "chartLegend": "Legenda",
   "deleteChart": "Excluir gráfico",
   "chartNoNumbers": "Selecione células com números para fazer um gráfico.",
-  "chartNoData": "Sem dados"
+  "chartNoData": "Sem dados",
+  "chartSeries": "Série {number}"
 }

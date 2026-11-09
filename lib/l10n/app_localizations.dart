@@ -855,6 +855,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No data'**
   String get chartNoData;
+
+  /// No description provided for @chartSeries.
+  ///
+  /// In en, this message translates to:
+  /// **'Series {number}'**
+  String chartSeries(int number);
 }
 
 class _AppLocalizationsDelegate

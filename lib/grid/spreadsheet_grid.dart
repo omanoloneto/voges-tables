@@ -75,6 +75,12 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _snapshots.clear();
+  }
+
+  @override
   void didUpdateWidget(SpreadsheetGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != controller) {
@@ -121,7 +127,11 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
       _snapshots.clear();
       _snapshotsRevision = controller.revision;
     }
-    return _snapshots[chart] ??= ChartSnapshot.of(controller, chart);
+    return _snapshots[chart] ??= ChartSnapshot.of(
+      controller,
+      chart,
+      seriesName: context.l10n.chartSeries,
+    );
   }
 
   /// The chart's frame in logical pixels on the screen.

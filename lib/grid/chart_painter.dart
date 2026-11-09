@@ -42,7 +42,12 @@ class ChartSnapshot {
     required this.showLegend,
   });
 
-  factory ChartSnapshot.of(WorkbookController controller, SheetChart chart) {
+  /// [seriesName] names series that have no name, from their number.
+  factory ChartSnapshot.of(
+    WorkbookController controller,
+    SheetChart chart, {
+    required String Function(int number) seriesName,
+  }) {
     List<CellAddress> cellsOf(CellRange range) {
       final cells = <CellAddress>[];
       for (var r = range.first.row; r <= range.last.row; r++) {
@@ -58,7 +63,7 @@ class ChartSnapshot {
     for (var i = 0; i < chart.series.length; i++) {
       final s = chart.series[i];
       final name = s.name == null
-          ? s.title ?? 'Series ${i + 1}'
+          ? s.title ?? seriesName(i + 1)
           : controller.chartText(s.name!, s.name!.range.first);
       series.add(
         ChartLine(name, [

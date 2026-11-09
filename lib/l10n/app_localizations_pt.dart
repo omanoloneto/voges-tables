@@ -410,4 +410,9 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get chartNoData => 'Sem dados';
+
+  @override
+  String chartSeries(int number) {
+    return 'Série $number';
+  }
 }

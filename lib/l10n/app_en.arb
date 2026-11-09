@@ -170,5 +170,13 @@
   "chartLegend": "Legend",
   "deleteChart": "Delete chart",
   "chartNoNumbers": "Select cells with numbers to make a chart.",
-  "chartNoData": "No data"
+  "chartNoData": "No data",
+  "chartSeries": "Series {number}",
+  "@chartSeries": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  }
 }

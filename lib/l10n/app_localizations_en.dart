@@ -408,4 +408,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chartNoData => 'No data';
+
+  @override
+  String chartSeries(int number) {
+    return 'Series $number';
+  }
 }
