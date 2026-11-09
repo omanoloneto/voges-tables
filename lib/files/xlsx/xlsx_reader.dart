@@ -4,6 +4,7 @@ import 'package:xml/xml.dart';
 
 import '../../sheet/workbook.dart';
 import '../spreadsheet_file_exception.dart';
+import 'xlsx_chart_reader.dart';
 import 'xlsx_colors.dart';
 import 'xlsx_package.dart';
 import 'xlsx_shared_strings.dart';
@@ -81,10 +82,17 @@ class _XlsxReader {
       final sheet = Sheet(
         entry.getAttribute('name') ?? 'Sheet${sheets.length + 1}',
       );
-      final source = package.text(
-        XlsxPackage.resolve(workbookPath, relationship.target),
-      );
-      if (source != null) sheetReader.read(source, sheet);
+      final sheetPath = XlsxPackage.resolve(workbookPath, relationship.target);
+      final source = package.text(sheetPath);
+      final drawingId = source == null ? null : sheetReader.read(source, sheet);
+      if (drawingId != null) {
+        sheet.charts = readSheetCharts(
+          package,
+          sheetPath: sheetPath,
+          drawingId: drawingId,
+          sheet: sheet,
+        );
+      }
       sheets.add(sheet);
     }
     if (sheets.isEmpty) {

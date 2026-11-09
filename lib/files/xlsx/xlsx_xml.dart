@@ -9,6 +9,11 @@ abstract final class XlsxNamespaces {
       'http://schemas.openxmlformats.org/package/2006/relationships';
   static const contentTypes =
       'http://schemas.openxmlformats.org/package/2006/content-types';
+  static const chart = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
+  static const drawing =
+      'http://schemas.openxmlformats.org/drawingml/2006/main';
+  static const spreadsheetDrawing =
+      'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
 }
 
 const xmlDeclaration =
@@ -44,6 +49,38 @@ String escapeText(String value) {
 
 String escapeAttribute(String value) =>
     escapeText(value).replaceAll('"', '&quot;');
+
+/// Plain XML escaping, for DrawingML text that knows no `_xHHHH_` form:
+/// characters XML 1.0 cannot carry are dropped.
+String escapeXml(String value) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < value.length; i++) {
+    final unit = value.codeUnitAt(i);
+    switch (unit) {
+      case 0x26:
+        buffer.write('&amp;');
+      case 0x3C:
+        buffer.write('&lt;');
+      case 0x3E:
+        buffer.write('&gt;');
+      case < 0x20 when unit != 0x09 && unit != 0x0A && unit != 0x0D:
+        break;
+      case 0xFFFE || 0xFFFF:
+        break;
+      default:
+        buffer.writeCharCode(unit);
+    }
+  }
+  return buffer.toString();
+}
+
+/// The shortest text that reads back as the same double.
+String xlsxNumber(double value) {
+  if (value == value.truncateToDouble() && value.abs() < 1e15) {
+    return value.toInt().toString();
+  }
+  return value.toString();
+}
 
 final _escapedCharacter = RegExp(r'_x([0-9A-Fa-f]{4})_');
 

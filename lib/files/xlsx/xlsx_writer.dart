@@ -2,8 +2,10 @@ import 'dart:typed_data';
 
 import '../../sheet/cell_address.dart';
 import '../../sheet/cell_value.dart';
+import '../../sheet/chart.dart';
 import '../../sheet/workbook.dart';
 import 'sheet_names.dart';
+import 'xlsx_chart_writer.dart';
 import 'xlsx_package.dart';
 import 'xlsx_shared_strings.dart';
 import 'xlsx_sheet_writer.dart';
@@ -14,31 +16,70 @@ const applicationName = 'Voges Tables';
 
 /// Writes [workbook] as an `.xlsx` that Excel, LibreOffice and Google Sheets
 /// open without repair. Formulas carry the value [valueOf] gives as their
-/// cached result; Excel recalculates everything on open anyway.
+/// cached result; Excel recalculates everything on open anyway. Charts cache
+/// the same values, with [displayOf] as the text of their labels.
 ///
 /// Sheet names Excel would refuse are fixed on the way out (see
 /// [safeSheetNames]); the workbook itself is not changed.
 Uint8List writeXlsx(
   Workbook workbook, {
   required CellValue Function(int sheetIndex, CellAddress address) valueOf,
+  String Function(int sheetIndex, CellAddress address)? displayOf,
   String currencySymbol = r'R$',
   DateTime? now,
 }) {
   final styles = XlsxStyleTable(currencySymbol: currencySymbol);
   final strings = SharedStringTable();
   final sheetWriter = XlsxSheetWriter(styles: styles, strings: strings);
+  final names = safeSheetNames([for (final s in workbook.sheets) s.name]);
+  final chartWriter = XlsxChartWriter(
+    workbook,
+    sheetNames: names,
+    valueOf: valueOf,
+    displayOf: displayOf,
+  );
   final count = workbook.sheets.length;
   final parts = <String, String>{};
+  var drawings = 0, charts = 0;
   for (var i = 0; i < count; i++) {
+    final sheet = workbook.sheets[i];
+    final drawn = <SheetChart>[];
+    for (final chart in sheet.charts) {
+      final xml = chartWriter.chart(chart);
+      if (xml == null) continue;
+      drawn.add(chart);
+      parts['xl/charts/chart${charts + drawn.length}.xml'] = xml;
+    }
+    String? drawingId;
+    if (drawn.isNotEmpty) {
+      drawings++;
+      parts['xl/drawings/drawing$drawings.xml'] = XlsxChartWriter.drawing(
+        drawn,
+      );
+      parts['xl/drawings/_rels/drawing$drawings.xml.rels'] = _relationships([
+        for (var n = 1; n <= drawn.length; n++)
+          ('chart', '../charts/chart${charts + n}.xml'),
+      ]);
+      parts['xl/worksheets/_rels/sheet${i + 1}.xml.rels'] = _relationships([
+        ('drawing', '../drawings/drawing$drawings.xml'),
+      ]);
+      charts += drawn.length;
+      drawingId = 'rId1';
+    }
     parts['xl/worksheets/sheet${i + 1}.xml'] = sheetWriter.write(
-      workbook.sheets[i],
+      sheet,
       valueOf: (address) => valueOf(i, address),
       selected: i == 0,
+      drawingId: drawingId,
     );
   }
-  final names = safeSheetNames([for (final s in workbook.sheets) s.name]);
   final hasStrings = !strings.isEmpty;
-  parts['[Content_Types].xml'] = _contentTypes(count, hasStrings);
+  parts['[Content_Types].xml'] = _contentTypes(
+    count,
+    hasStrings,
+    drawings: drawings,
+    charts: charts,
+  );
   parts['_rels/.rels'] = _rootRelationships;
   parts['docProps/app.xml'] = _appProperties;
   parts['docProps/core.xml'] = _coreProperties(now ?? DateTime.now());
@@ -57,7 +98,12 @@ const _relationshipBase =
 const _spreadsheetType =
     'application/vnd.openxmlformats-officedocument.spreadsheetml';
 
-String _contentTypes(int sheets, bool hasStrings) {
+String _contentTypes(
+  int sheets,
+  bool hasStrings, {
+  required int drawings,
+  required int charts,
+}) {
   final buffer = StringBuffer(xmlDeclaration)
     ..write(
       '<Types xmlns="${XlsxNamespaces.contentTypes}">'
@@ -81,6 +127,18 @@ String _contentTypes(int sheets, bool hasStrings) {
     buffer.write(
       '<Override PartName="/xl/sharedStrings.xml" '
       'ContentType="$_spreadsheetType.sharedStrings+xml"/>',
+    );
+  }
+  for (var i = 1; i <= drawings; i++) {
+    buffer.write(
+      '<Override PartName="/xl/drawings/drawing$i.xml" '
+      'ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>',
+    );
+  }
+  for (var i = 1; i <= charts; i++) {
+    buffer.write(
+      '<Override PartName="/xl/charts/chart$i.xml" '
+      'ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
     );
   }
   buffer.write(
@@ -166,6 +224,21 @@ String _workbookRelationships(int sheets, bool hasStrings) {
     buffer.write(
       '<Relationship Id="rId${sheets + 2}" '
       'Type="$_relationshipBase/sharedStrings" Target="sharedStrings.xml"/>',
+    );
+  }
+  buffer.write('</Relationships>');
+  return buffer.toString();
+}
+
+/// A part's relationships, numbered `rId1`, `rId2`... in order.
+String _relationships(List<(String type, String target)> targets) {
+  final buffer = StringBuffer(xmlDeclaration)
+    ..write('<Relationships xmlns="${XlsxNamespaces.packageRelationships}">');
+  for (var i = 0; i < targets.length; i++) {
+    final (type, target) = targets[i];
+    buffer.write(
+      '<Relationship Id="rId${i + 1}" Type="$_relationshipBase/$type" '
+      'Target="$target"/>',
     );
   }
   buffer.write('</Relationships>');
