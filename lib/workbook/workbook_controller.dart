@@ -4,19 +4,31 @@ import '../formula/formula.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/cell_style.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/chart.dart';
 import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
+import 'chart_builder.dart';
+import 'find.dart';
 import 'selection.dart';
 import 'undo_history.dart';
 
 /// Cells copied or cut, kept relative to the top left corner of the copy.
 class CellClip {
-  CellClip(this.sheet, this.range, this.cells, {required this.cut});
+  CellClip(
+    this.sheet,
+    this.range,
+    this.cells, {
+    required this.cut,
+    this.merges = const [],
+  });
 
   final int sheet;
   final CellRange range;
   final Map<CellAddress, Cell> cells;
   final bool cut;
+
+  /// Merges inside the copy, relative to its top left corner too.
+  final List<CellRange> merges;
 }
 
 /// Everything the editor changes in the open workbook goes through here, so
@@ -31,6 +43,7 @@ class WorkbookController extends ChangeNotifier {
 
   /// Text results depend on the language (`=2.5&""` is "2,5" in Portuguese).
   void localeChanged() {
+    _displays.clear();
     if (_calculator.locale == locale()) return;
     _calculator.locale = locale();
     notifyListeners();
@@ -95,24 +108,58 @@ class WorkbookController extends ChangeNotifier {
   CellValue valueAt(CellAddress address, [int? sheetIndex]) =>
       _calculator.valueAt(sheetIndex ?? _active, address);
 
+  final _displays = <CellKey, String>{};
+  var _displaysRevision = -1;
+
+  /// The text a cell shows. Kept until the next change, so repainting while
+  /// scrolling does not format the same numbers again and again.
   String displayAt(CellAddress address, [int? sheetIndex]) {
     final index = sheetIndex ?? _active;
-    final cell = _workbook.sheets[index].cellAt(address);
-    return formatValue(valueAt(address, index), cell.style.format, locale());
+    if (_displaysRevision != _revision || _displays.length > 50000) {
+      _displays.clear();
+      _displaysRevision = _revision;
+    }
+    return _displays[cellKey(index, address)] ??= _format(index, address);
   }
+
+  String _format(int sheetIndex, CellAddress address) => formatValue(
+    valueAt(address, sheetIndex),
+    _workbook.sheets[sheetIndex].cellAt(address).style.format,
+    locale(),
+  );
 
   String editTextAt(CellAddress address) => editText(cellAt(address), locale());
 
   // Selection and sheets.
 
   void select(Selection selection) {
-    final next = Selection(
+    final next = _withMerges(
       clampAddress(selection.anchor),
       clampAddress(selection.active),
     );
     if (next == _selection) return;
     _selection = next;
     notifyListeners();
+  }
+
+  /// A selection covers whole merges; clicking a merged cell selects all of
+  /// it with its top left cell active, as in Excel.
+  Selection _withMerges(CellAddress anchor, CellAddress active) {
+    if (sheet.merges.isEmpty) return Selection(anchor, active);
+    final merge = sheet.mergeAt(active);
+    if (merge != null && merge.contains(anchor)) {
+      return Selection(merge.first, merge.first, merge);
+    }
+    final range = sheet.expandToMerges(CellRange(anchor, active));
+    return range == CellRange(anchor, active)
+        ? Selection(anchor, active)
+        : Selection(anchor, active, range);
+  }
+
+  /// The cell that typing goes to: the top left one of a merge.
+  CellAddress get editCell {
+    final active = _selection.active;
+    return sheet.mergeAt(active)?.first ?? active;
   }
 
   void selectAll() {
@@ -149,10 +196,52 @@ class WorkbookController extends ChangeNotifier {
     if (!isValidSheetName(trimmed)) return false;
     final other = _workbook.indexOf(trimmed);
     if (other >= 0 && other != index) return false;
-    _workbook.sheets[index].name = trimmed;
-    _calculator.sheetsChanged();
+    final old = _workbook.sheets[index].name;
+    if (old == trimmed) return true;
+    _rename(index, old, trimmed);
+    _history.record(SheetRename(index, old, trimmed));
     _changed();
     return true;
+  }
+
+  void _rename(int index, String oldName, String newName) {
+    _workbook.sheets[index].name = newName;
+    _renameReferences(oldName, newName);
+    _calculator.sheetsChanged();
+  }
+
+  /// Formulas and charts that read the sheet [oldName] read it by its new
+  /// name.
+  void _renameReferences(String oldName, String newName) {
+    final lower = oldName.toLowerCase();
+    for (final target in _workbook.sheets) {
+      for (final MapEntry(:key, :value) in target.cells.entries.toList()) {
+        if (!value.isFormula) continue;
+        final text = renameSheetReferences(value.input, oldName, newName);
+        if (!identical(text, value.input)) {
+          target.setCell(key, value.copyWith(input: text));
+        }
+      }
+      if (target.charts.isEmpty) continue;
+      ChartData? data(ChartData? value) =>
+          value != null && value.sheet.toLowerCase() == lower
+          ? value.withSheet(newName)
+          : value;
+      target.charts = [
+        for (final chart in target.charts)
+          chart.copyWith(
+            categories: () => data(chart.categories),
+            series: [
+              for (final s in chart.series)
+                ChartSeries(
+                  values: data(s.values)!,
+                  name: data(s.name),
+                  title: s.title,
+                ),
+            ],
+          ),
+      ];
+    }
   }
 
   void deleteSheet(int index) {
@@ -279,6 +368,216 @@ class WorkbookController extends ChangeNotifier {
     _changed();
   }
 
+  // Merged cells.
+
+  /// The merge under the active cell, if any.
+  CellRange? get activeMerge => sheet.mergeAt(_selection.active);
+
+  /// Merges the selection into one cell that keeps the top left content;
+  /// merges inside it are replaced. With [center] the text is centered, as
+  /// Excel's "Merge & Center" does. Nothing happens for a single cell or a
+  /// whole row or column.
+  void mergeSelection({bool center = true}) {
+    final range = _selection.range;
+    if (range.isSingle || wholeRowsSelected || wholeColumnsSelected) return;
+    final change = Change(_active)
+      ..mergesBefore = sheet.merges
+      ..mergesAfter = [
+        for (final merge in sheet.merges)
+          if (!merge.intersects(range)) merge,
+        range,
+      ];
+    for (final address in _storedIn(range)) {
+      if (address == range.first) continue;
+      final cell = cellAt(address);
+      if (cell.input.isNotEmpty || cell.constant is! EmptyValue) {
+        _write(change, address, Cell(style: cell.style));
+      }
+    }
+    if (center) {
+      final first = cellAt(range.first);
+      _write(
+        change,
+        range.first,
+        first.copyWith(
+          style: first.style.copyWith(horizontal: HorizontalAlign.center),
+        ),
+      );
+    }
+    _apply(change.sheet, change.after);
+    sheet.merges = change.mergesAfter!;
+    _history.record(change);
+    _selection = Selection(range.first, range.first, range);
+    _changed();
+  }
+
+  /// Splits every merge that touches the selection.
+  void unmergeSelection() {
+    final range = _selection.range;
+    final kept = [
+      for (final merge in sheet.merges)
+        if (!merge.intersects(range)) merge,
+    ];
+    if (kept.length == sheet.merges.length) return;
+    final change = Change(_active)
+      ..mergesBefore = sheet.merges
+      ..mergesAfter = kept;
+    sheet.merges = kept;
+    _history.record(change);
+    _changed();
+  }
+
+  /// Content of cells that a merge would clear, so the editor can warn.
+  bool get mergeWouldClear {
+    final range = _selection.range;
+    for (final address in _storedIn(range)) {
+      if (address == range.first) continue;
+      final cell = cellAt(address);
+      if (cell.input.isNotEmpty || cell.constant is! EmptyValue) return true;
+    }
+    return false;
+  }
+
+  // Find and replace.
+
+  List<CellAddress>? _found;
+  (FindQuery, int, int)? _foundFor;
+
+  /// Every cell of the active sheet that matches, by rows. Kept until the
+  /// workbook or the query changes, so going to the next match is a binary
+  /// search instead of a scan of the sheet.
+  List<CellAddress> findAll(FindQuery query) {
+    final key = (query, _active, _revision);
+    if (_foundFor == key) return _found!;
+    final found = <CellAddress>[];
+    if (!query.isEmpty) {
+      final merges = sheet.merges.isNotEmpty;
+      sheet.cells.forEach((address, cell) {
+        if (cell.input.isEmpty && cell.constant is EmptyValue) return;
+        if (merges && (sheet.mergeAt(address)?.first ?? address) != address) {
+          return;
+        }
+        final text = query.inFormulas
+            ? editText(cell, locale())
+            : _displays[cellKey(_active, address)] ?? _format(_active, address);
+        if (query.matches(text)) found.add(address);
+      });
+      found.sort();
+    }
+    _found = found;
+    _foundFor = key;
+    return found;
+  }
+
+  /// Selects the next match after the active cell (or before it), wrapping
+  /// around the sheet. Null when nothing matches.
+  CellAddress? findNext(FindQuery query, {bool backwards = false}) {
+    final found = findAll(query);
+    if (found.isEmpty) return null;
+    final from = _selection.active;
+    var low = 0, high = found.length;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (found[middle].compareTo(from) <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    final CellAddress next;
+    if (backwards) {
+      var index = low - 1;
+      if (index >= 0 && found[index] == from) index--;
+      next = found[index < 0 ? found.length - 1 : index];
+    } else {
+      next = found[low < found.length ? low : 0];
+    }
+    select(Selection.single(next));
+    return next;
+  }
+
+  /// Replaces in the active cell when it matches, then goes to the next
+  /// match. Replacing always works on what was typed, as in Excel.
+  CellAddress? replaceNext(FindQuery query, String replacement) {
+    final active = editCell;
+    final text = editTextAt(active);
+    if (query.matches(text)) {
+      enter(active, query.replace(text, replacement));
+    }
+    return findNext(query);
+  }
+
+  /// Replaces every match of the sheet in one change; returns how many
+  /// cells changed.
+  int replaceAll(FindQuery query, String replacement) {
+    if (query.isEmpty) return 0;
+    final change = Change(_active);
+    for (final address in findAll(query)) {
+      final text = editTextAt(address);
+      if (!query.matches(text)) continue;
+      final updated = query.replace(text, replacement);
+      if (updated == text) continue;
+      _write(
+        change,
+        address,
+        parseInput(updated, locale()).applyTo(cellAt(address)),
+      );
+    }
+    _commit(change);
+    return change.after.length;
+  }
+
+  // Charts.
+
+  /// Makes a chart of the selection, or of the block around the active cell
+  /// when only one cell is selected. Returns its index, or null when there
+  /// are no numbers to draw.
+  int? insertChart(ChartKind kind) {
+    final range = _selection.range.isSingle
+        ? currentRegion(sheet, _selection.active)
+        : _selection.range;
+    final chart = buildChart(
+      sheet: sheet,
+      range: range,
+      kind: kind,
+      valueAt: valueAt,
+    );
+    if (chart == null) return null;
+    _setCharts([...sheet.charts, chart]);
+    return sheet.charts.length - 1;
+  }
+
+  void updateChart(int index, SheetChart chart) {
+    if (index < 0 || index >= sheet.charts.length) return;
+    _setCharts([...sheet.charts]..[index] = chart);
+  }
+
+  void deleteChart(int index) {
+    if (index < 0 || index >= sheet.charts.length) return;
+    _setCharts([...sheet.charts]..removeAt(index));
+  }
+
+  void _setCharts(List<SheetChart> charts) {
+    final change = Change(_active)
+      ..chartsBefore = sheet.charts
+      ..chartsAfter = List.unmodifiable(charts);
+    sheet.charts = change.chartsAfter!;
+    _history.record(change);
+    _changed();
+  }
+
+  /// The values a chart reads from [data], by its sheet name; empty when
+  /// that sheet is gone.
+  CellValue chartValue(ChartData data, CellAddress address) {
+    final index = _workbook.indexOf(data.sheet);
+    return index < 0 ? const EmptyValue() : valueAt(address, index);
+  }
+
+  String chartText(ChartData data, CellAddress address) {
+    final index = _workbook.indexOf(data.sheet);
+    return index < 0 ? '' : displayAt(address, index);
+  }
+
   // Undo.
 
   void undo() => _replay(_history.takeUndo(), back: true);
@@ -293,6 +592,8 @@ class WorkbookController extends ChangeNotifier {
         _replayCells(entry, back: back);
       case StructureChange():
         _replayStructure(entry, back: back);
+      case SheetRename(:final sheet, :final oldName, :final newName):
+        _rename(sheet, back ? newName : oldName, back ? oldName : newName);
     }
     _changed();
   }
@@ -311,6 +612,12 @@ class WorkbookController extends ChangeNotifier {
     final target = _workbook.sheets[change.sheet];
     sizes(back ? change.widthsBefore : change.widthsAfter, target.columnWidths);
     sizes(back ? change.heightsBefore : change.heightsAfter, target.rowHeights);
+    if (back ? change.mergesBefore : change.mergesAfter case final merges?) {
+      target.merges = merges;
+    }
+    if (back ? change.chartsBefore : change.chartsAfter case final charts?) {
+      target.charts = charts;
+    }
     if (cells.isNotEmpty) {
       final keys = cells.keys.toList()..sort();
       _selection = Selection(keys.first, keys.last);
@@ -324,7 +631,7 @@ class WorkbookController extends ChangeNotifier {
     final target = _workbook.sheets[change.sheet];
     if (!back) {
       change.result = _calculator.changeStructure(change.edit)!;
-      target.moveLayout(change.edit);
+      _moveLayouts(change.edit);
       return;
     }
     final edit = change.edit, inverse = edit.inverse;
@@ -345,6 +652,9 @@ class WorkbookController extends ChangeNotifier {
     );
     _calculator.setCells(fixes);
     change.layout.restore(target);
+    for (var i = 0; i < change.charts.length; i++) {
+      _workbook.sheets[i].charts = change.charts[i];
+    }
   }
 
   // Rows and columns.
@@ -387,13 +697,28 @@ class WorkbookController extends ChangeNotifier {
       count: count,
     );
     final layout = SheetLayout.of(sheet);
+    final charts = [for (final s in _workbook.sheets) s.charts];
     final result = _calculator.changeStructure(edit);
     if (result == null) return false;
-    sheet.moveLayout(edit);
+    _moveLayouts(edit);
     _clip = null;
-    _history.record(StructureChange(edit, layout, result));
+    _history.record(StructureChange(edit, layout, charts, result));
     _changed();
     return true;
+  }
+
+  void _moveLayouts(StructureEdit edit) {
+    final edited = _workbook.sheets[edit.sheet];
+    edited.moveLayout(edit);
+    final name = edited.name.toLowerCase();
+    for (var i = 0; i < _workbook.sheets.length; i++) {
+      final target = _workbook.sheets[i];
+      if (target.charts.isEmpty) continue;
+      target.charts = [
+        for (final chart in target.charts)
+          ?chart.moved(edit, name, onEditedSheet: i == edit.sheet),
+      ];
+    }
   }
 
   // Clipboard.
@@ -406,7 +731,20 @@ class WorkbookController extends ChangeNotifier {
         address,
       );
     }
-    _clip = CellClip(_active, range, cells, cut: cut);
+    _clip = CellClip(
+      _active,
+      range,
+      cells,
+      cut: cut,
+      merges: [
+        for (final merge in sheet.merges)
+          if (range.contains(merge.first) && range.contains(merge.last))
+            CellRange(
+              merge.first.offset(-range.first.column, -range.first.row),
+              merge.last.offset(-range.first.column, -range.first.row),
+            ),
+      ],
+    );
     notifyListeners();
   }
 
@@ -454,11 +792,49 @@ class WorkbookController extends ChangeNotifier {
       }
     }
     if (clip.cut) _clip = null;
-    final last = target.first.offset(
-      clip.range.columns * repeatColumns - 1,
-      clip.range.rows * repeatRows - 1,
+    final last = clampAddress(
+      target.first.offset(
+        clip.range.columns * repeatColumns - 1,
+        clip.range.rows * repeatRows - 1,
+      ),
     );
-    _selection = Selection(target.first, clampAddress(last));
+    final pasted = CellRange(target.first, last);
+    final source = clip.cut && clip.sheet == _active ? clip.range : null;
+    if (clip.merges.isNotEmpty ||
+        sheet.merges.any(
+          (m) =>
+              m.intersects(pasted) || (source != null && m.intersects(source)),
+        )) {
+      change
+        ..mergesBefore = sheet.merges
+        ..mergesAfter = [
+          for (final merge in sheet.merges)
+            if (!merge.intersects(pasted) &&
+                (source == null || !merge.intersects(source)))
+              merge,
+          for (var rx = 0; rx < repeatColumns; rx++)
+            for (var ry = 0; ry < repeatRows; ry++)
+              for (final merge in clip.merges)
+                if (merge.last
+                    .offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    )
+                    .isValid)
+                  CellRange(
+                    merge.first.offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    ),
+                    merge.last.offset(
+                      target.first.column + rx * clip.range.columns,
+                      target.first.row + ry * clip.range.rows,
+                    ),
+                  ),
+        ];
+      sheet.merges = change.mergesAfter!;
+    }
+    _selection = Selection(target.first, last);
     _commit(change);
   }
 
@@ -647,6 +1023,7 @@ class WorkbookController extends ChangeNotifier {
   void sortSelection({required bool ascending}) {
     final range = _selection.range;
     if (range.rows < 2) return;
+    if (sheet.merges.any((merge) => merge.intersects(range))) return;
     final used = sheet.usedRange;
     if (used == null) return;
     final lastRow = range.last.row < used.last.row

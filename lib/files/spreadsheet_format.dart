@@ -96,6 +96,7 @@ Uint8List writeSpreadsheet(
     return writeXlsx(
       workbook,
       valueOf: valueOf,
+      displayOf: displayOf,
       currencySymbol: currencySymbol,
     );
   }

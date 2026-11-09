@@ -1,6 +1,7 @@
 import 'cell_address.dart';
 import 'cell_style.dart';
 import 'cell_value.dart';
+import 'chart.dart';
 import 'structure.dart';
 
 /// What the user typed in a cell, and its look.
@@ -44,6 +45,7 @@ class Sheet {
   Map<int, double> rowHeights = {};
   int frozenRows = 0;
   int frozenColumns = 0;
+  List<SheetChart> charts = const [];
 
   static const defaultColumnWidth = 88.0;
   static const defaultRowHeight = 24.0;
@@ -54,6 +56,57 @@ class Sheet {
 
   CellAddress? _corner;
   var _cornerStale = false;
+
+  /// Merged cells, none overlapping another; the top left cell holds the
+  /// content and the others stay empty.
+  List<CellRange> get merges => _merges;
+  set merges(List<CellRange> value) {
+    _merges = List.unmodifiable(value);
+    _mergesByColumn = null;
+  }
+
+  List<CellRange> _merges = const [];
+  Map<int, List<CellRange>>? _mergesByColumn;
+
+  /// The merge that covers [cell], found through an index by column, as
+  /// moving around the grid asks this on every key.
+  CellRange? mergeAt(CellAddress cell) {
+    if (_merges.isEmpty) return null;
+    final index = _mergesByColumn ??= _indexMerges();
+    for (final merge in index[cell.column] ?? const <CellRange>[]) {
+      if (merge.contains(cell)) return merge;
+    }
+    return null;
+  }
+
+  Map<int, List<CellRange>> _indexMerges() {
+    final index = <int, List<CellRange>>{};
+    for (final merge in _merges) {
+      for (var c = merge.first.column; c <= merge.last.column; c++) {
+        (index[c] ??= []).add(merge);
+      }
+    }
+    return index;
+  }
+
+  /// [range] grown until no merge sits half inside it, as Excel selects.
+  CellRange expandToMerges(CellRange range) {
+    if (_merges.isEmpty) return range;
+    var result = range;
+    var grown = true;
+    while (grown) {
+      grown = false;
+      for (final merge in _merges) {
+        if (!merge.intersects(result)) continue;
+        final union = result.union(merge);
+        if (union != result) {
+          result = union;
+          grown = true;
+        }
+      }
+    }
+    return result;
+  }
 
   Cell cellAt(CellAddress address) => _cells[address] ?? const Cell();
 
@@ -90,8 +143,14 @@ class Sheet {
     }
   }
 
-  /// Moves sizes and frozen panes as rows or columns come and go.
+  /// Moves sizes, frozen panes and merges as rows or columns come and go;
+  /// a merge left with one cell is gone.
   void moveLayout(StructureEdit edit) {
+    if (_merges.isNotEmpty) {
+      merges = [
+        for (final merge in _merges) ?edit.moveRange(merge),
+      ].where((merge) => !merge.isSingle).toList();
+    }
     if (edit.axis == SheetAxis.rows) {
       rowHeights = edit.moveKeys(rowHeights);
       frozenRows = edit.moveFrozen(frozenRows);
@@ -124,25 +183,28 @@ class Sheet {
   }
 }
 
-/// The sizes and frozen panes of a sheet, as undo keeps them.
+/// The sizes, frozen panes and merges of a sheet, as undo keeps them.
 class SheetLayout {
   SheetLayout.of(Sheet sheet)
     : columnWidths = {...sheet.columnWidths},
       rowHeights = {...sheet.rowHeights},
       frozenRows = sheet.frozenRows,
-      frozenColumns = sheet.frozenColumns;
+      frozenColumns = sheet.frozenColumns,
+      merges = sheet.merges;
 
   final Map<int, double> columnWidths;
   final Map<int, double> rowHeights;
   final int frozenRows;
   final int frozenColumns;
+  final List<CellRange> merges;
 
   void restore(Sheet sheet) {
     sheet
       ..columnWidths = {...columnWidths}
       ..rowHeights = {...rowHeights}
       ..frozenRows = frozenRows
-      ..frozenColumns = frozenColumns;
+      ..frozenColumns = frozenColumns
+      ..merges = merges;
   }
 }
 

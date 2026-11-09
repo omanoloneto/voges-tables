@@ -4,12 +4,18 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../formula/references.dart';
+import '../l10n/l10n.dart';
 import '../sheet/cell_address.dart';
+import '../sheet/chart.dart';
 import '../sheet/workbook.dart';
 import '../shell/platform.dart';
 import '../workbook/selection.dart';
 import '../workbook/workbook_controller.dart';
 import 'cell_editing.dart';
+import 'chart_frame.dart';
+import 'chart_kinds.dart';
+import 'chart_painter.dart';
 import 'grid_axis.dart';
 import 'grid_painter.dart';
 
@@ -69,6 +75,12 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _snapshots.clear();
+  }
+
+  @override
   void didUpdateWidget(SpreadsheetGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != controller) {
@@ -86,12 +98,146 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   }
 
   void _onWorkbook() {
+    _sizesChanged();
     if (_sheet != controller.activeSheet) {
       _scrolls[_sheet] = _scroll;
       _sheet = controller.activeSheet;
       _scroll = _scrolls[_sheet] ?? Offset.zero;
+      _chart = null;
     }
+    if ((_chart ?? -1) >= sheet.charts.length) _chart = null;
     setState(() {});
+  }
+
+  // Charts.
+
+  int? _chart;
+  final _snapshots = <SheetChart, ChartSnapshot>{};
+  var _snapshotsRevision = -1;
+
+  /// Selects the chart at [index] and scrolls to it, as after inserting it.
+  void selectChart(int index) {
+    if (index < 0 || index >= sheet.charts.length) return;
+    setState(() => _chart = index);
+    ensureVisible(sheet.charts[index].from.cell);
+  }
+
+  ChartSnapshot _snapshotOf(SheetChart chart) {
+    if (_snapshotsRevision != controller.revision) {
+      _snapshots.clear();
+      _snapshotsRevision = controller.revision;
+    }
+    return _snapshots[chart] ??= ChartSnapshot.of(
+      controller,
+      chart,
+      seriesName: context.l10n.chartSeries,
+    );
+  }
+
+  /// The chart's frame in logical pixels on the screen.
+  Rect _chartRect(SheetChart chart) {
+    final columns = _columns, rows = _rows;
+    return Rect.fromLTRB(
+      columns.screenStart(chart.from.cell.column) + chart.from.dx,
+      rows.screenStart(chart.from.cell.row) + chart.from.dy,
+      columns.screenStart(chart.to.cell.column) + chart.to.dx,
+      rows.screenStart(chart.to.cell.row) + chart.to.dy,
+    );
+  }
+
+  /// The cell and offset under a logical point on the screen.
+  ChartPoint _pointAt(Offset p) {
+    final columns = _columns, rows = _rows;
+    final column =
+        columns.indexAtScreen(math.max(p.dx, columns.headerSize)) ??
+        columns.firstScrolled;
+    final row =
+        rows.indexAtScreen(math.max(p.dy, rows.headerSize)) ??
+        rows.firstScrolled;
+    return ChartPoint(
+      CellAddress(column, row),
+      dx: math.max(0, p.dx - columns.screenStart(column)),
+      dy: math.max(0, p.dy - rows.screenStart(row)),
+    );
+  }
+
+  void _chartMoved(int index, Rect screen) {
+    final logical = Rect.fromLTRB(
+      screen.left / zoom,
+      screen.top / zoom,
+      screen.right / zoom,
+      screen.bottom / zoom,
+    );
+    final chart = sheet.charts[index];
+    controller.updateChart(
+      index,
+      chart.copyWith(
+        from: _pointAt(logical.topLeft),
+        to: _pointAt(logical.bottomRight),
+      ),
+    );
+  }
+
+  Widget _charts(AppLocalizations l10n) {
+    final charts = sheet.charts;
+    final left = _rowHeaderWidth, top = columnHeaderHeight;
+    final view = Rect.fromLTRB(
+      left,
+      top,
+      _logicalSize.width,
+      _logicalSize.height,
+    );
+    final children = <Widget>[];
+    for (var i = 0; i < charts.length; i++) {
+      final rect = _chartRect(charts[i]);
+      if (!rect.overlaps(view) && i != _chart) continue;
+      final screen = Rect.fromLTRB(
+        (rect.left - left) * zoom,
+        (rect.top - top) * zoom,
+        (rect.right - left) * zoom,
+        (rect.bottom - top) * zoom,
+      );
+      children.add(
+        ChartFrame(
+          key: ObjectKey(charts[i]),
+          rect: screen,
+          snapshot: _snapshotOf(charts[i]),
+          selected: i == _chart,
+          zoom: zoom,
+          emptyText: l10n.chartNoData,
+          onSelect: () {
+            if (editing.active) editing.commit(EditMove.none);
+            widget.focusNode.requestFocus();
+            if (_chart != i) setState(() => _chart = i);
+          },
+          onChanged: (moved) =>
+              _chartMoved(i, moved.translate(left * zoom, top * zoom)),
+        ),
+      );
+    }
+    if (_chart case final index?) {
+      final rect = _chartRect(charts[index]);
+      children.add(
+        Positioned(
+          right: math.max(0, (_logicalSize.width - rect.right) * zoom),
+          top: math.max(0, (rect.top - top) * zoom - 40),
+          child: _ChartToolbar(
+            chart: charts[index],
+            onChanged: (chart) => controller.updateChart(index, chart),
+            onDelete: () => controller.deleteChart(index),
+          ),
+        ),
+      );
+    }
+    return Positioned(
+      left: left * zoom,
+      top: top * zoom,
+      right: _scrollbarThickness,
+      bottom: _scrollbarThickness,
+      child: ClipRect(
+        child: Stack(clipBehavior: Clip.none, children: children),
+      ),
+    );
   }
 
   void _onEditing() => setState(() {});
@@ -109,19 +255,28 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     math.max(0, _size.height - _scrollbarThickness) / zoom,
   );
 
-  GridAxis get _columnsAxis => GridAxis(
+  GridAxis? _columnsCache, _rowsCache;
+
+  /// Built once per frame: hovering and painting ask for positions many
+  /// times, and building sorts the changed sizes.
+  GridAxis get _columnsAxis => _columnsCache ??= GridAxis(
     defaultSize: Sheet.defaultColumnWidth,
     sizes: sheet.columnWidths,
     count: CellAddress.maxColumns,
     frozen: sheet.frozenColumns,
   );
 
-  GridAxis get _rowsAxis => GridAxis(
+  GridAxis get _rowsAxis => _rowsCache ??= GridAxis(
     defaultSize: Sheet.defaultRowHeight,
     sizes: sheet.rowHeights,
     count: CellAddress.maxRows,
     frozen: sheet.frozenRows,
   );
+
+  void _sizesChanged() {
+    _columnsCache = null;
+    _rowsCache = null;
+  }
 
   AxisView get _columns => AxisView(
     _columnsAxis,
@@ -260,6 +415,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   }
 
   void _pointerDown(PointerDownEvent event) {
+    if (_chart != null) setState(() => _chart = null);
     final local = event.localPosition;
     final secondary = event.buttons == kSecondaryMouseButton;
     if (editing.active && editing.acceptsReference && !secondary) {
@@ -378,14 +534,9 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   String _referenceText(CellRange range) {
     final prefix = controller.activeSheet == editing.sheet
         ? ''
-        : '${_quotedSheet(controller.sheet.name)}!';
+        : '${sheetPrefix(controller.sheet.name)}!';
     return '$prefix${range.a1}';
   }
-
-  static String _quotedSheet(String name) =>
-      RegExp(r'^[A-Za-z_][A-Za-z0-9_.]*$').hasMatch(name)
-      ? name
-      : "'${name.replaceAll("'", "''")}'";
 
   void _keepEditorFocus() {
     final bar = editing.barFocus.hasFocus;
@@ -435,11 +586,13 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
         final column = _resizing!;
         final width = math.max(8.0, p.dx - _columns.screenStart(column));
         sheet.columnWidths[column] = width;
+        _sizesChanged();
         setState(() {});
       case _Drag.rowSize:
         final row = _resizing!;
         final height = math.max(8.0, p.dy - _rows.screenStart(row));
         sheet.rowHeights[row] = height;
+        _sizesChanged();
         setState(() {});
     }
   }
@@ -483,6 +636,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   /// Puts back the size from before the drag, so the change is recorded
   /// once, with undo, when the mouse is released.
   void _restore(Map<int, double> sizes, int index) {
+    _sizesChanged();
     final original = _resizeOriginal;
     if (original == null) {
       sizes.remove(index);
@@ -530,7 +684,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     final cell = _cellAt(local);
     if (cell != null) {
       controller.select(Selection.single(cell));
-      editing.start(cell);
+      editing.start(controller.editCell);
     }
   }
 
@@ -581,6 +735,19 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
       return KeyEventResult.ignored;
     }
     if (editing.active) return _typeAhead(event);
+    if (_chart case final index?) {
+      final key = event.logicalKey;
+      if (key == LogicalKeyboardKey.delete ||
+          key == LogicalKeyboardKey.backspace) {
+        _chart = null;
+        controller.deleteChart(index);
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.escape) {
+        setState(() => _chart = null);
+        return KeyEventResult.handled;
+      }
+    }
     final keys = HardwareKeyboard.instance;
     final command = isApplePlatform
         ? keys.isMetaPressed
@@ -592,19 +759,19 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     if (key == LogicalKeyboardKey.arrowDown) {
       target = command
           ? _jump(selection.active, 0, 1)
-          : selection.active.offset(0, 1);
+          : _step(selection.active, 0, 1);
     } else if (key == LogicalKeyboardKey.arrowUp) {
       target = command
           ? _jump(selection.active, 0, -1)
-          : selection.active.offset(0, -1);
+          : _step(selection.active, 0, -1);
     } else if (key == LogicalKeyboardKey.arrowRight) {
       target = command
           ? _jump(selection.active, 1, 0)
-          : selection.active.offset(1, 0);
+          : _step(selection.active, 1, 0);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
       target = command
           ? _jump(selection.active, -1, 0)
-          : selection.active.offset(-1, 0);
+          : _step(selection.active, -1, 0);
     } else if (key == LogicalKeyboardKey.pageDown) {
       target = selection.active.offset(0, _pageRows);
     } else if (key == LogicalKeyboardKey.pageUp) {
@@ -634,7 +801,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.f2) {
-      editing.start(selection.active);
+      editing.start(controller.editCell);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.delete ||
@@ -653,7 +820,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
         character.codeUnitAt(0) >= 32 &&
         character.codeUnitAt(0) != 127) {
       ensureVisible(selection.active);
-      editing.start(selection.active, replaceWith: character);
+      editing.start(controller.editCell, replaceWith: character);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -690,9 +857,19 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     return KeyEventResult.handled;
   }
 
+  /// One cell over, leaving a merge from its far edge.
+  CellAddress _step(CellAddress from, int dx, int dy) {
+    final merge = sheet.mergeAt(from);
+    if (merge == null) return from.offset(dx, dy);
+    return CellAddress(
+      dx > 0 ? merge.last.column + dx : merge.first.column + dx,
+      dy > 0 ? merge.last.row + dy : merge.first.row + dy,
+    );
+  }
+
   void _moveInside(int columns, int rows) {
     final cell = clampAddress(
-      controller.selection.active.offset(columns, rows),
+      _step(controller.selection.active, columns, rows),
     );
     controller.select(Selection.single(cell));
     ensureVisible(cell);
@@ -783,7 +960,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   Widget? _editor(GridPainter painter) {
     final address = editing.address;
     if (address == null || editing.sheet != controller.activeSheet) return null;
-    final rect = painter.cellRect(address);
+    final rect = painter.areaRect(address);
     final style = sheet.cellAt(address).style;
     final textStyle = TextCache.textStyleOf(
       style,
@@ -826,6 +1003,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
 
   @override
   Widget build(BuildContext context) {
+    _sizesChanged();
     return LayoutBuilder(
       builder: (context, constraints) {
         _size = constraints.biggest;
@@ -858,6 +1036,7 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
                   ),
                 ),
               ),
+              if (sheet.charts.isNotEmpty) _charts(context.l10n),
               ?editor,
               Positioned(
                 right: 0,
@@ -972,6 +1151,110 @@ class _ScrollThumb extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Type, title, legend and delete for the selected chart.
+class _ChartToolbar extends StatelessWidget {
+  const _ChartToolbar({
+    required this.chart,
+    required this.onChanged,
+    required this.onDelete,
+  });
+
+  final SheetChart chart;
+  final ValueChanged<SheetChart> onChanged;
+  final VoidCallback onDelete;
+
+  Future<void> _editTitle(BuildContext context) async {
+    final l10n = context.l10n;
+    final text = TextEditingController(text: chart.title ?? '');
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.chartTitle),
+        content: TextField(
+          controller: text,
+          autofocus: true,
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, text.text),
+            child: Text(l10n.apply),
+          ),
+        ],
+      ),
+    );
+    text.dispose();
+    if (title == null) return;
+    final trimmed = title.trim();
+    onChanged(chart.copyWith(title: () => trimmed.isEmpty ? null : trimmed));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 3,
+      color: scheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PopupMenuButton<ChartKind>(
+              tooltip: l10n.chartType,
+              icon: Icon(chartKindIcon(chart.kind), size: 18),
+              initialValue: chart.kind,
+              onSelected: (kind) => onChanged(chart.copyWith(kind: kind)),
+              itemBuilder: (context) => [
+                for (final kind in ChartKind.values)
+                  PopupMenuItem(
+                    value: kind,
+                    height: 36,
+                    child: Row(
+                      children: [
+                        Icon(chartKindIcon(kind), size: 18),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            chartKindName(l10n, kind),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            IconButton(
+              tooltip: l10n.chartTitle,
+              icon: const Icon(Icons.title, size: 18),
+              onPressed: () => _editTitle(context),
+            ),
+            IconButton(
+              tooltip: l10n.chartLegend,
+              isSelected: chart.showLegend,
+              icon: const Icon(Icons.legend_toggle, size: 18),
+              onPressed: () =>
+                  onChanged(chart.copyWith(showLegend: !chart.showLegend)),
+            ),
+            IconButton(
+              tooltip: l10n.deleteChart,
+              icon: const Icon(Icons.delete_outline, size: 18),
+              onPressed: onDelete,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

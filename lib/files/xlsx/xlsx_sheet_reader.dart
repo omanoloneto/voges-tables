@@ -1,3 +1,4 @@
+import 'package:xml/xml.dart' show XmlException;
 import 'package:xml/xml_events.dart';
 
 import '../../sheet/cell_address.dart';
@@ -15,6 +16,9 @@ const pixelsPerPoint = 4 / 3;
 /// one unit is one maximum digit width of Calibri 11 (7 px).
 const pixelsPerWidthUnit = 7.0;
 
+/// Drawings measure in EMU: 914 400 per inch, so 9 525 per pixel at 96 dpi.
+const emuPerPixel = 9525;
+
 /// Days between the 1904 and the 1900 date systems.
 const _date1904Offset = 1462;
 
@@ -31,8 +35,10 @@ class XlsxSheetReader {
   final List<CellStyle> styles;
   final bool date1904;
 
-  void read(String source, Sheet sheet) {
-    _SheetParse(this, sheet).run(source);
+  /// Fills [sheet] and returns the relationship id of its drawing, if any.
+  String? read(String source, Sheet sheet) {
+    final parse = _SheetParse(this, sheet)..run(source);
+    return parse.drawingId;
   }
 }
 
@@ -53,6 +59,10 @@ class _SheetParse {
   final _formula = StringBuffer();
   final _inline = StringItemText();
 
+  final _merges = <CellRange>[];
+  String? drawingId;
+
+  var _cellsDone = false;
   var _sheetViews = 0;
   var _defaultRowHeight = 15.0;
   var _row = -1;
@@ -69,12 +79,13 @@ class _SheetParse {
   String? _sharedIndex;
 
   void run(String source) {
-    for (final event in parseEvents(source)) {
-      switch (event) {
-        case XmlStartElementEvent():
+    final events = parseEvents(source).iterator;
+    while (!_cellsDone && events.moveNext()) {
+      switch (events.current) {
+        case final XmlStartElementEvent event:
           _start(event);
-        case XmlEndElementEvent():
-          if (_end(event)) return;
+        case final XmlEndElementEvent event:
+          _end(event);
         case XmlTextEvent(:final value):
           _text(value);
         case XmlCDATAEvent(:final value):
@@ -83,6 +94,78 @@ class _SheetParse {
           break;
       }
     }
+    try {
+      _readTail(events);
+    } on XmlException {
+      // Damage after the cells only costs the merges and the drawing.
+    }
+    if (_merges.isNotEmpty) sheet.merges = _withoutOverlaps(_merges);
+  }
+
+  /// After `sheetData` only merges and the drawing matter.
+  void _readTail(Iterator<XmlEvent> events) {
+    var inMerges = false;
+    while (events.moveNext()) {
+      switch (events.current) {
+        case final XmlStartElementEvent event:
+          switch (event.localName) {
+            case 'mergeCells':
+              inMerges = !event.isSelfClosing;
+            case 'mergeCell' when inMerges:
+              _readMerge(_attribute(event, 'ref'));
+            case 'drawing':
+              drawingId ??= _relationshipId(event);
+          }
+        case XmlEndElementEvent(localName: 'mergeCells'):
+          inMerges = false;
+        default:
+          break;
+      }
+    }
+  }
+
+  void _readMerge(String? reference) {
+    final parts = reference?.split(':');
+    if (parts == null || parts.length != 2) return;
+    final first = _parseReference(parts[0]), last = _parseReference(parts[1]);
+    if (first == null || last == null || first.row < 0 || last.row < 0) return;
+    CellAddress clamp(CellAddress a) => CellAddress(
+      a.column.clamp(0, CellAddress.maxColumns - 1),
+      a.row.clamp(0, CellAddress.maxRows - 1),
+    );
+    final merge = CellRange(clamp(first), clamp(last));
+    if (!merge.isSingle) _merges.add(merge);
+  }
+
+  /// Keeps the upper of two overlapping merges (the earlier one on a tie).
+  static List<CellRange> _withoutOverlaps(List<CellRange> merges) {
+    final order = List.generate(merges.length, (i) => i)
+      ..sort((a, b) {
+        final rows = merges[a].first.row - merges[b].first.row;
+        return rows != 0 ? rows : a - b;
+      });
+    final kept = List.filled(merges.length, false);
+    final open = <CellRange>[];
+    for (final i in order) {
+      final merge = merges[i];
+      open.removeWhere((other) => other.last.row < merge.first.row);
+      if (open.any(merge.intersects)) continue;
+      open.add(merge);
+      kept[i] = true;
+    }
+    return [
+      for (var i = 0; i < merges.length; i++)
+        if (kept[i]) merges[i],
+    ];
+  }
+
+  static String? _relationshipId(XmlStartElementEvent event) {
+    for (final attribute in event.attributes) {
+      if (attribute.localName == 'id' && attribute.namespacePrefix != null) {
+        return attribute.value;
+      }
+    }
+    return null;
   }
 
   void _start(XmlStartElementEvent event) {
@@ -95,6 +178,8 @@ class _SheetParse {
       case 'c':
         _startCell(event);
         if (closed) _endCell();
+      case 'sheetData' when closed:
+        _cellsDone = true;
       case 'v':
         _inValue = !closed;
       case 'f':
@@ -119,8 +204,7 @@ class _SheetParse {
     }
   }
 
-  /// True once the cells are over: nothing after `sheetData` is needed.
-  bool _end(XmlEndElementEvent event) {
+  void _end(XmlEndElementEvent event) {
     switch (event.localName) {
       case 'is':
         _inInline = false;
@@ -131,11 +215,10 @@ class _SheetParse {
       case 'f':
         _inFormula = false;
       case 'sheetData':
-        return true;
+        _cellsDone = true;
       default:
         if (_inInline) _inline.end(event);
     }
-    return false;
   }
 
   void _text(String value) {

@@ -1,5 +1,6 @@
 import '../formula/formula.dart';
 import '../sheet/cell_address.dart';
+import '../sheet/chart.dart';
 import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
 
@@ -22,19 +23,31 @@ class Change extends HistoryEntry {
   final Map<int, double?> widthsAfter = {};
   final Map<int, double?> heightsBefore = {};
   final Map<int, double?> heightsAfter = {};
+  List<CellRange>? mergesBefore;
+  List<CellRange>? mergesAfter;
+  List<SheetChart>? chartsBefore;
+  List<SheetChart>? chartsAfter;
 
   @override
   bool get isEmpty =>
-      after.isEmpty && widthsAfter.isEmpty && heightsAfter.isEmpty;
+      after.isEmpty &&
+      widthsAfter.isEmpty &&
+      heightsAfter.isEmpty &&
+      mergesAfter == null &&
+      chartsAfter == null;
 }
 
 /// Rows or columns inserted or deleted, with what undo needs to put back:
 /// the layout of the sheet before and what the calculator rewrote.
 class StructureChange extends HistoryEntry {
-  StructureChange(this.edit, this.layout, this.result);
+  StructureChange(this.edit, this.layout, this.charts, this.result);
 
   final StructureEdit edit;
   final SheetLayout layout;
+
+  /// The charts of every sheet before, as charts on other sheets can read
+  /// the edited one.
+  final List<List<SheetChart>> charts;
   StructureResult result;
 
   @override
@@ -42,6 +55,19 @@ class StructureChange extends HistoryEntry {
 
   @override
   bool get isEmpty => false;
+}
+
+/// A sheet renamed; formulas and charts that read it follow both ways.
+class SheetRename extends HistoryEntry {
+  SheetRename(this.sheet, this.oldName, this.newName);
+
+  @override
+  final int sheet;
+  final String oldName;
+  final String newName;
+
+  @override
+  bool get isEmpty => oldName == newName;
 }
 
 class UndoHistory {

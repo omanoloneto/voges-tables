@@ -123,5 +123,60 @@
   "insertColumns": "Insert columns",
   "deleteRows": "Delete rows",
   "deleteColumns": "Delete columns",
-  "insertNoRoom": "There is no room: the last rows or columns of the sheet have data."
+  "insertNoRoom": "There is no room: the last rows or columns of the sheet have data.",
+  "mergeCenter": "Merge & Center",
+  "unmergeCells": "Unmerge cells",
+  "mergeClearsData": "Merging keeps only the value of the top left cell. Merge anyway?",
+  "mergeAction": "Merge",
+  "find": "Find",
+  "replace": "Replace",
+  "replaceAll": "Replace all",
+  "replaceWith": "Replace with",
+  "findNext": "Next",
+  "findPrevious": "Previous",
+  "matchCase": "Match case",
+  "wholeCell": "Match the whole cell",
+  "lookInFormulas": "Search in formulas",
+  "findResult": "{current} of {total}",
+  "@findResult": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "findNone": "No results",
+  "replacedCount": "{count, plural, =0{Nothing replaced} =1{1 cell replaced} other{{count} cells replaced}}",
+  "@replacedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chartGroup": "Chart",
+  "insertChart": "Insert chart",
+  "chartColumn": "Column",
+  "chartBar": "Bar",
+  "chartLine": "Line",
+  "chartArea": "Area",
+  "chartPie": "Pie",
+  "chartScatter": "Scatter",
+  "chartType": "Chart type",
+  "chartTitle": "Chart title",
+  "chartLegend": "Legend",
+  "deleteChart": "Delete chart",
+  "chartNoNumbers": "Select cells with numbers to make a chart.",
+  "chartNoData": "No data",
+  "chartSeries": "Series {number}",
+  "@chartSeries": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  }
 }

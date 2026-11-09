@@ -307,4 +307,112 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get insertNoRoom =>
       'No hay espacio: las últimas filas o columnas de la hoja tienen datos.';
+
+  @override
+  String get mergeCenter => 'Combinar y centrar';
+
+  @override
+  String get unmergeCells => 'Separar celdas';
+
+  @override
+  String get mergeClearsData =>
+      'Combinar conserva solo el valor de la celda superior izquierda. ¿Combinar de todos modos?';
+
+  @override
+  String get mergeAction => 'Combinar';
+
+  @override
+  String get find => 'Buscar';
+
+  @override
+  String get replace => 'Reemplazar';
+
+  @override
+  String get replaceAll => 'Reemplazar todo';
+
+  @override
+  String get replaceWith => 'Reemplazar con';
+
+  @override
+  String get findNext => 'Siguiente';
+
+  @override
+  String get findPrevious => 'Anterior';
+
+  @override
+  String get matchCase => 'Coincidir mayúsculas y minúsculas';
+
+  @override
+  String get wholeCell => 'Celda completa';
+
+  @override
+  String get lookInFormulas => 'Buscar en las fórmulas';
+
+  @override
+  String findResult(int current, int total) {
+    return '$current de $total';
+  }
+
+  @override
+  String get findNone => 'Sin resultados';
+
+  @override
+  String replacedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count celdas reemplazadas',
+      one: '1 celda reemplazada',
+      zero: 'Nada reemplazado',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chartGroup => 'Gráfico';
+
+  @override
+  String get insertChart => 'Insertar gráfico';
+
+  @override
+  String get chartColumn => 'Columnas';
+
+  @override
+  String get chartBar => 'Barras';
+
+  @override
+  String get chartLine => 'Líneas';
+
+  @override
+  String get chartArea => 'Área';
+
+  @override
+  String get chartPie => 'Circular';
+
+  @override
+  String get chartScatter => 'Dispersión';
+
+  @override
+  String get chartType => 'Tipo de gráfico';
+
+  @override
+  String get chartTitle => 'Título del gráfico';
+
+  @override
+  String get chartLegend => 'Leyenda';
+
+  @override
+  String get deleteChart => 'Eliminar gráfico';
+
+  @override
+  String get chartNoNumbers =>
+      'Selecciona celdas con números para crear un gráfico.';
+
+  @override
+  String get chartNoData => 'Sin datos';
+
+  @override
+  String chartSeries(int number) {
+    return 'Serie $number';
+  }
 }

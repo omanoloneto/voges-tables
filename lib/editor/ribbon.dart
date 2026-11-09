@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
+import '../grid/chart_kinds.dart';
 import '../sheet/cell_style.dart';
+import '../sheet/chart.dart';
 import '../sheet/structure.dart';
 import '../shell/platform.dart';
 import '../shell/ribbon_controls.dart';
@@ -16,6 +18,10 @@ class RibbonActions {
     required this.autoSum,
     required this.insert,
     required this.delete,
+    required this.merge,
+    required this.find,
+    required this.replace,
+    required this.insertChart,
   });
 
   final VoidCallback copy;
@@ -24,6 +30,12 @@ class RibbonActions {
   final VoidCallback autoSum;
   final ValueChanged<SheetAxis> insert;
   final ValueChanged<SheetAxis> delete;
+
+  /// Merges or unmerges the selection.
+  final VoidCallback merge;
+  final VoidCallback find;
+  final VoidCallback replace;
+  final ValueChanged<ChartKind> insertChart;
 }
 
 /// Colors offered for text and fill, the classic office palette.
@@ -112,6 +124,8 @@ class Ribbon extends StatelessWidget {
               RibbonGroup(label: l10n.cellsGroup, child: _cells(l10n)),
               const RibbonGroupDivider(),
               RibbonGroup(label: l10n.dataGroup, child: _data(l10n)),
+              const RibbonGroupDivider(),
+              RibbonGroup(label: l10n.chartGroup, child: _chart(l10n)),
             ],
           ),
         ),
@@ -266,7 +280,14 @@ class Ribbon extends StatelessWidget {
                 ),
               ),
             ),
-          const SizedBox(width: 34),
+          RibbonIconButton(
+            icon: Icons.merge,
+            tooltip: controller.activeMerge == null
+                ? l10n.mergeCenter
+                : l10n.unmergeCells,
+            selected: controller.activeMerge != null,
+            onPressed: actions.merge,
+          ),
         ],
       ),
     ],
@@ -435,7 +456,7 @@ class Ribbon extends StatelessWidget {
             items: [
               RibbonMenuItem(
                 Icons.table_rows_outlined,
-                '${l10n.insertRows} (${shortcutLabel('+', shift: true)})',
+                '${l10n.insertRows} (${shortcutLabel('=', shift: true)})',
                 () => actions.insert(SheetAxis.rows),
               ),
               RibbonMenuItem(
@@ -493,6 +514,11 @@ class Ribbon extends StatelessWidget {
                   tooltip: l10n.sortDescending,
                   onPressed: () => controller.sortSelection(ascending: false),
                 ),
+                RibbonIconButton(
+                  icon: Icons.search,
+                  tooltip: '${l10n.find} (${shortcutLabel('F')})',
+                  onPressed: actions.find,
+                ),
               ],
             ),
             Row(
@@ -522,6 +548,11 @@ class Ribbon extends StatelessWidget {
                           );
                   },
                 ),
+                RibbonIconButton(
+                  icon: Icons.find_replace,
+                  tooltip: '${l10n.replace} (${shortcutLabel('H')})',
+                  onPressed: actions.replace,
+                ),
               ],
             ),
           ],
@@ -533,6 +564,26 @@ class Ribbon extends StatelessWidget {
   static String _number2(double value) => value == value.roundToDouble()
       ? value.toInt().toString()
       : value.toString();
+}
+
+extension on Ribbon {
+  Widget _chart(AppLocalizations l10n) => MenuAnchor(
+    style: ribbonMenuStyle(),
+    menuChildren: [
+      for (final kind in ChartKind.values)
+        MenuItemButton(
+          style: ribbonMenuItemStyle(),
+          leadingIcon: Icon(chartKindIcon(kind), size: 18),
+          onPressed: () => actions.insertChart(kind),
+          child: Text(chartKindName(l10n, kind)),
+        ),
+    ],
+    builder: (context, menu, _) => RibbonBigButton(
+      icon: Icons.insert_chart_outlined,
+      label: l10n.insertChart,
+      onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+    ),
+  );
 }
 
 class _ColorButton extends StatelessWidget {

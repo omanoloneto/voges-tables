@@ -306,4 +306,111 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get insertNoRoom =>
       'There is no room: the last rows or columns of the sheet have data.';
+
+  @override
+  String get mergeCenter => 'Merge & Center';
+
+  @override
+  String get unmergeCells => 'Unmerge cells';
+
+  @override
+  String get mergeClearsData =>
+      'Merging keeps only the value of the top left cell. Merge anyway?';
+
+  @override
+  String get mergeAction => 'Merge';
+
+  @override
+  String get find => 'Find';
+
+  @override
+  String get replace => 'Replace';
+
+  @override
+  String get replaceAll => 'Replace all';
+
+  @override
+  String get replaceWith => 'Replace with';
+
+  @override
+  String get findNext => 'Next';
+
+  @override
+  String get findPrevious => 'Previous';
+
+  @override
+  String get matchCase => 'Match case';
+
+  @override
+  String get wholeCell => 'Match the whole cell';
+
+  @override
+  String get lookInFormulas => 'Search in formulas';
+
+  @override
+  String findResult(int current, int total) {
+    return '$current of $total';
+  }
+
+  @override
+  String get findNone => 'No results';
+
+  @override
+  String replacedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count cells replaced',
+      one: '1 cell replaced',
+      zero: 'Nothing replaced',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chartGroup => 'Chart';
+
+  @override
+  String get insertChart => 'Insert chart';
+
+  @override
+  String get chartColumn => 'Column';
+
+  @override
+  String get chartBar => 'Bar';
+
+  @override
+  String get chartLine => 'Line';
+
+  @override
+  String get chartArea => 'Area';
+
+  @override
+  String get chartPie => 'Pie';
+
+  @override
+  String get chartScatter => 'Scatter';
+
+  @override
+  String get chartType => 'Chart type';
+
+  @override
+  String get chartTitle => 'Chart title';
+
+  @override
+  String get chartLegend => 'Legend';
+
+  @override
+  String get deleteChart => 'Delete chart';
+
+  @override
+  String get chartNoNumbers => 'Select cells with numbers to make a chart.';
+
+  @override
+  String get chartNoData => 'No data';
+
+  @override
+  String chartSeries(int number) {
+    return 'Series $number';
+  }
 }

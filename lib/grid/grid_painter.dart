@@ -146,10 +146,7 @@ class GridPainter extends CustomPainter {
     if (columnList.isEmpty || rowList.isEmpty) return;
     canvas.save();
     canvas.clipRect(region);
-    _paintFills(canvas, columnList, rowList);
-    _paintLines(canvas, region, columnList, rowList);
-    _paintTexts(canvas, region, columnList, rowList);
-    _paintBorders(canvas, columnList, rowList);
+    _paintCells(canvas, region, columnList, rowList);
     _paintClip(canvas);
     _paintSelection(canvas);
     canvas.restore();
@@ -169,99 +166,227 @@ class GridPainter extends CustomPainter {
     rows.screenEnd(range.last.row),
   );
 
-  void _paintFills(Canvas canvas, List<int> columnList, List<int> rowList) {
-    for (final row in rowList) {
-      for (final column in columnList) {
-        final fill = sheet.cells[CellAddress(column, row)]?.style.fillColor;
-        if (fill == null) continue;
-        canvas.drawRect(
-          cellRect(CellAddress(column, row)),
-          Paint()..color = Color(fill),
-        );
-      }
-    }
+  /// The cell's rectangle, or the merge's when it is merged.
+  Rect areaRect(CellAddress cell) {
+    final merge = sheet.mergeAt(cell);
+    return merge == null ? cellRect(cell) : rangeRect(merge);
   }
 
-  void _paintLines(
+  /// Fills, grid lines, texts and borders of one pane. Positions are worked
+  /// out once per column and row, and each stored cell is looked up once.
+  void _paintCells(
     Canvas canvas,
     Rect region,
     List<int> columnList,
     List<int> rowList,
   ) {
-    final paint = Paint()
+    final columnCount = columnList.length, rowCount = rowList.length;
+    final left = List<double>.generate(
+      columnCount,
+      (i) => columns.screenStart(columnList[i]),
+    );
+    final right = List<double>.generate(
+      columnCount,
+      (i) => left[i] + columns.axis.sizeOf(columnList[i]),
+    );
+    final top = List<double>.generate(
+      rowCount,
+      (i) => rows.screenStart(rowList[i]),
+    );
+    final bottom = List<double>.generate(
+      rowCount,
+      (i) => top[i] + rows.axis.sizeOf(rowList[i]),
+    );
+    final firstColumn = columnList.first, lastColumn = columnList.last;
+    final firstRow = rowList.first, lastRow = rowList.last;
+    final visible = CellRange(
+      CellAddress(firstColumn, firstRow),
+      CellAddress(lastColumn, lastRow),
+    );
+    final merges = [
+      for (final merge in sheet.merges)
+        if (merge.intersects(visible)) merge,
+    ];
+    final covered = <CellAddress>{};
+    for (final merge in merges) {
+      final from = CellAddress(
+        merge.first.column < firstColumn ? firstColumn : merge.first.column,
+        merge.first.row < firstRow ? firstRow : merge.first.row,
+      );
+      final to = CellAddress(
+        merge.last.column > lastColumn ? lastColumn : merge.last.column,
+        merge.last.row > lastRow ? lastRow : merge.last.row,
+      );
+      for (var r = from.row; r <= to.row; r++) {
+        for (var c = from.column; c <= to.column; c++) {
+          covered.add(CellAddress(c, r));
+        }
+      }
+    }
+
+    final cells = sheet.cells;
+    final texts = <(int, int, Cell)>[];
+    final borders = <(int, int, CellBorders)>[];
+    final fill = Paint();
+    for (var ri = 0; ri < rowCount; ri++) {
+      final row = rowList[ri];
+      for (var ci = 0; ci < columnCount; ci++) {
+        final address = CellAddress(columnList[ci], row);
+        final cell = cells[address];
+        if (cell == null) continue;
+        if (covered.isNotEmpty && covered.contains(address)) continue;
+        final style = cell.style;
+        if (style.fillColor case final color?) {
+          fill.color = Color(color);
+          canvas.drawRect(
+            Rect.fromLTRB(left[ci], top[ri], right[ci], bottom[ri]),
+            fill,
+          );
+        }
+        if (address != editing &&
+            (cell.input.isNotEmpty || cell.constant is! EmptyValue)) {
+          texts.add((ci, ri, cell));
+        }
+        if (!style.borders.isEmpty) borders.add((ci, ri, style.borders));
+      }
+    }
+
+    final line = Paint()
       ..color = GridColors.line
       ..strokeWidth = 1 / zoom;
-    for (final column in columnList) {
-      final x = columns.screenEnd(column) - 0.5 / zoom;
-      canvas.drawLine(Offset(x, region.top), Offset(x, region.bottom), paint);
+    final half = 0.5 / zoom;
+    for (var ci = 0; ci < columnCount; ci++) {
+      final x = right[ci] - half;
+      canvas.drawLine(Offset(x, region.top), Offset(x, region.bottom), line);
     }
-    for (final row in rowList) {
-      final y = rows.screenEnd(row) - 0.5 / zoom;
-      canvas.drawLine(Offset(region.left, y), Offset(region.right, y), paint);
+    for (var ri = 0; ri < rowCount; ri++) {
+      final y = bottom[ri] - half;
+      canvas.drawLine(Offset(region.left, y), Offset(region.right, y), line);
     }
-  }
 
-  void _paintTexts(
-    Canvas canvas,
-    Rect region,
-    List<int> columnList,
-    List<int> rowList,
-  ) {
-    for (final row in rowList) {
-      for (final column in columnList) {
-        final address = CellAddress(column, row);
-        if (address == editing) continue;
-        final cell = sheet.cells[address];
-        if (cell == null ||
-            (cell.input.isEmpty && cell.constant is EmptyValue)) {
-          continue;
+    for (final merge in merges) {
+      final rect = rangeRect(merge);
+      final cell = cells[merge.first];
+      fill.color = Color(cell?.style.fillColor ?? 0xFFFFFFFF);
+      canvas.drawRect(
+        Rect.fromLTRB(
+          rect.left,
+          rect.top,
+          rect.right - 1 / zoom,
+          rect.bottom - 1 / zoom,
+        ),
+        fill,
+      );
+    }
+
+    bool blank(int ci, int row) {
+      final address = CellAddress(columnList[ci], row);
+      if (covered.isNotEmpty && covered.contains(address)) return false;
+      final cell = cells[address];
+      return cell == null || (!cell.isFormula && cell.constant is EmptyValue);
+    }
+
+    for (final (ci, ri, cell) in texts) {
+      final address = CellAddress(columnList[ci], rowList[ri]);
+      final rect = Rect.fromLTRB(left[ci], top[ri], right[ci], bottom[ri]);
+      var area = rect;
+      final layout = _layoutText(address, cell, rect);
+      if (layout == null) continue;
+      final (painter, align, overflows) = layout;
+      if (overflows && align == TextAlign.left) {
+        var end = ci;
+        while (end + 1 < columnCount && blank(end + 1, rowList[ri])) {
+          if (right[end] - rect.left >= painter.width + 6) break;
+          end++;
         }
-        _paintCellText(canvas, region, address, cell, columnList.last);
+        area = Rect.fromLTRB(rect.left, rect.top, right[end], rect.bottom);
       }
+      _drawText(canvas, region, area, painter, align, cell.style);
+    }
+    for (final merge in merges) {
+      if (merge.first == editing) continue;
+      final cell = cells[merge.first];
+      if (cell == null || (cell.input.isEmpty && cell.constant is EmptyValue)) {
+        continue;
+      }
+      final rect = rangeRect(merge);
+      final layout = _layoutText(merge.first, cell, rect);
+      if (layout == null) continue;
+      final (painter, align, _) = layout;
+      _drawText(canvas, region, rect, painter, align, cell.style);
+    }
+
+    final ink = Paint()
+      ..color = GridColors.ink
+      ..strokeWidth = 1;
+    for (final (ci, ri, edges) in borders) {
+      _drawBorders(
+        canvas,
+        Rect.fromLTRB(left[ci], top[ri], right[ci], bottom[ri]),
+        edges,
+        ink,
+      );
+    }
+    for (final merge in merges) {
+      final edges = CellBorders(
+        top: cells[merge.first]?.style.borders.top ?? false,
+        left: cells[merge.first]?.style.borders.left ?? false,
+        bottom:
+            cells[CellAddress(merge.first.column, merge.last.row)]
+                ?.style
+                .borders
+                .bottom ??
+            false,
+        right:
+            cells[CellAddress(merge.last.column, merge.first.row)]
+                ?.style
+                .borders
+                .right ??
+            false,
+      );
+      if (!edges.isEmpty) _drawBorders(canvas, rangeRect(merge), edges, ink);
     }
   }
 
-  void _paintCellText(
-    Canvas canvas,
-    Rect region,
+  /// The laid out text of a cell, how it aligns and whether it is wider
+  /// than [rect]; numbers that do not fit become `###`, as in Excel.
+  (TextPainter, TextAlign, bool)? _layoutText(
     CellAddress address,
     Cell cell,
-    int lastColumn,
+    Rect rect,
   ) {
-    final value = controller.valueAt(address);
     var text = controller.displayAt(address);
-    if (text.isEmpty) return;
+    if (text.isEmpty) return null;
+    final value = controller.valueAt(address);
     final style = cell.style;
-    final rect = cellRect(address);
     final align = _alignOf(style.horizontal, value);
     var painter = textCache.layout(
       text,
       style,
       wrapWidth: style.wrap ? rect.width - 6 : null,
     );
-    var area = rect;
-    if (!style.wrap && painter.width > rect.width - 6) {
-      if (value is NumberValue) {
-        final hashes = (rect.width / textCache.layout('#', style).width)
-            .floor()
-            .clamp(1, 255);
-        text = '#' * hashes;
-        painter = textCache.layout(text, style);
-      } else if (align == TextAlign.left) {
-        var right = address.column;
-        while (right < lastColumn &&
-            _isBlank(CellAddress(right + 1, address.row))) {
-          if (columns.screenEnd(right) - rect.left >= painter.width + 6) break;
-          right++;
-        }
-        area = Rect.fromLTRB(
-          rect.left,
-          rect.top,
-          columns.screenEnd(right),
-          rect.bottom,
-        );
-      }
+    if (style.wrap || painter.width <= rect.width - 6) {
+      return (painter, align, false);
     }
+    if (value is NumberValue) {
+      final hashes = (rect.width / textCache.layout('#', style).width)
+          .floor()
+          .clamp(1, 255);
+      text = '#' * hashes;
+      painter = textCache.layout(text, style);
+      return (painter, align, false);
+    }
+    return (painter, align, true);
+  }
+
+  void _drawText(
+    Canvas canvas,
+    Rect region,
+    Rect area,
+    TextPainter painter,
+    TextAlign align,
+    CellStyle style,
+  ) {
     final dx = switch (align) {
       TextAlign.right => area.right - 3 - painter.width,
       TextAlign.center => area.left + (area.width - painter.width) / 2,
@@ -272,15 +397,32 @@ class GridPainter extends CustomPainter {
       VerticalAlign.middle => area.top + (area.height - painter.height) / 2,
       VerticalAlign.bottom => area.bottom - 3 - painter.height,
     };
+    final clip = area.intersect(region);
+    final inside =
+        dx >= clip.left &&
+        dy >= clip.top &&
+        dx + painter.width <= clip.right &&
+        dy + painter.height <= clip.bottom;
+    if (inside) {
+      painter.paint(canvas, Offset(dx, dy));
+      return;
+    }
     canvas.save();
-    canvas.clipRect(area.intersect(region));
+    canvas.clipRect(clip);
     painter.paint(canvas, Offset(dx, dy));
     canvas.restore();
   }
 
-  bool _isBlank(CellAddress address) {
-    final cell = sheet.cells[address];
-    return cell == null || (!cell.isFormula && cell.constant is EmptyValue);
+  static void _drawBorders(
+    Canvas canvas,
+    Rect r,
+    CellBorders borders,
+    Paint paint,
+  ) {
+    if (borders.top) canvas.drawLine(r.topLeft, r.topRight, paint);
+    if (borders.bottom) canvas.drawLine(r.bottomLeft, r.bottomRight, paint);
+    if (borders.left) canvas.drawLine(r.topLeft, r.bottomLeft, paint);
+    if (borders.right) canvas.drawLine(r.topRight, r.bottomRight, paint);
   }
 
   static TextAlign _alignOf(HorizontalAlign align, CellValue value) =>
@@ -294,23 +436,6 @@ class GridPainter extends CustomPainter {
           _ => TextAlign.left,
         },
       };
-
-  void _paintBorders(Canvas canvas, List<int> columnList, List<int> rowList) {
-    final paint = Paint()
-      ..color = GridColors.ink
-      ..strokeWidth = 1;
-    for (final row in rowList) {
-      for (final column in columnList) {
-        final borders = sheet.cells[CellAddress(column, row)]?.style.borders;
-        if (borders == null || borders.isEmpty) continue;
-        final r = cellRect(CellAddress(column, row));
-        if (borders.top) canvas.drawLine(r.topLeft, r.topRight, paint);
-        if (borders.bottom) canvas.drawLine(r.bottomLeft, r.bottomRight, paint);
-        if (borders.left) canvas.drawLine(r.topLeft, r.bottomLeft, paint);
-        if (borders.right) canvas.drawLine(r.topRight, r.bottomRight, paint);
-      }
-    }
-  }
 
   void _paintClip(Canvas canvas) {
     final clip = controller.clip;
@@ -343,7 +468,7 @@ class GridPainter extends CustomPainter {
     final selection = controller.selection;
     final rect = rangeRect(selection.range);
     if (!selection.range.isSingle) {
-      final active = cellRect(selection.active);
+      final active = areaRect(selection.active);
       canvas.save();
       canvas.clipPath(
         Path()

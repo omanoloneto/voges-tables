@@ -15,10 +15,12 @@ class XlsxSheetWriter {
   final XlsxStyleTable styles;
   final SharedStringTable strings;
 
+  /// [drawingId] is the relationship id of the sheet's drawing, if any.
   String write(
     Sheet sheet, {
     required CellValue Function(CellAddress address) valueOf,
     bool selected = false,
+    String? drawingId,
   }) {
     final addresses = sheet.cells.keys.toList()..sort();
     final buffer = StringBuffer(xmlDeclaration)
@@ -30,17 +32,33 @@ class XlsxSheetWriter {
     _writeView(buffer, sheet, selected);
     buffer.write(
       '<sheetFormatPr '
-      'defaultColWidth="${_number(Sheet.defaultColumnWidth / pixelsPerWidthUnit)}" '
-      'defaultRowHeight="${_number(Sheet.defaultRowHeight / pixelsPerPoint)}" '
+      'defaultColWidth="${xlsxNumber(Sheet.defaultColumnWidth / pixelsPerWidthUnit)}" '
+      'defaultRowHeight="${xlsxNumber(Sheet.defaultRowHeight / pixelsPerPoint)}" '
       'customHeight="1"/>',
     );
     _writeColumns(buffer, sheet);
     _writeRows(buffer, sheet, addresses, valueOf);
+    _writeMerges(buffer, sheet.merges);
     buffer.write(
       '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" '
-      'header="0.3" footer="0.3"/></worksheet>',
+      'header="0.3" footer="0.3"/>',
     );
+    if (drawingId != null) buffer.write('<drawing r:id="$drawingId"/>');
+    buffer.write('</worksheet>');
     return buffer.toString();
+  }
+
+  static void _writeMerges(StringBuffer buffer, List<CellRange> merges) {
+    final written = [
+      for (final merge in merges)
+        if (!merge.isSingle && merge.first.isValid && merge.last.isValid) merge,
+    ];
+    if (written.isEmpty) return;
+    buffer.write('<mergeCells count="${written.length}">');
+    for (final merge in written) {
+      buffer.write('<mergeCell ref="${merge.a1}"/>');
+    }
+    buffer.write('</mergeCells>');
   }
 
   static String _dimension(List<CellAddress> addresses) {
@@ -102,7 +120,7 @@ class XlsxSheetWriter {
       if (continues) continue;
       buffer.write(
         '<col min="${columns[start] + 1}" max="${columns[i - 1] + 1}" '
-        'width="${_number(width / pixelsPerWidthUnit)}" customWidth="1"/>',
+        'width="${xlsxNumber(width / pixelsPerWidthUnit)}" customWidth="1"/>',
       );
       start = i;
     }
@@ -133,7 +151,7 @@ class XlsxSheetWriter {
       buffer.write('<row r="${row + 1}"');
       if (heightRow == row) {
         final points = sheet.rowHeights[row]! / pixelsPerPoint;
-        buffer.write(' ht="${_number(points)}" customHeight="1"');
+        buffer.write(' ht="${xlsxNumber(points)}" customHeight="1"');
         height++;
       }
       buffer.write('>');
@@ -179,18 +197,10 @@ class XlsxSheetWriter {
   static (String?, String?) _cached(CellValue value) => switch (value) {
     EmptyValue() => (null, null),
     NumberValue(:final value) when !value.isFinite => ('e', '#NUM!'),
-    NumberValue(:final value) => (null, _number(value)),
+    NumberValue(:final value) => (null, xlsxNumber(value)),
     TextValue(:final value) => ('str', escapeText(value)),
     BoolValue(:final value) => ('b', value ? '1' : '0'),
     ErrorValue(error: CellError.circular) => (null, null),
     ErrorValue(:final error) => ('e', error.code),
   };
-
-  /// The shortest text that reads back as the same double.
-  static String _number(double value) {
-    if (value == value.truncateToDouble() && value.abs() < 1e15) {
-      return value.toInt().toString();
-    }
-    return value.toString();
-  }
 }
