@@ -60,8 +60,12 @@ class StatusBar extends StatelessWidget {
                   Text('${l10n.sum}: ${number(stats.sum)}', style: style),
                 ],
               ],
-              const Spacer(),
-              ?trailing,
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: trailing,
+                ),
+              ),
               IconButton(
                 tooltip: l10n.zoomOut,
                 iconSize: 16,

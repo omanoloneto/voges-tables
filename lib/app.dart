@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:voges_updater/voges_updater.dart'
+    show UpdateCheck, UpdaterLocalizations;
 
 import 'editor/editor_screen.dart';
 import 'files/spreadsheet_files.dart';
@@ -19,6 +21,7 @@ class VogesTablesApp extends StatelessWidget {
     required this.language,
     required this.launchArguments,
     this.windowButtons = WindowButtonsLayout.right,
+    this.updates,
     super.key,
   });
 
@@ -28,6 +31,7 @@ class VogesTablesApp extends StatelessWidget {
   final AppLanguage language;
   final List<String> launchArguments;
   final WindowButtonsLayout windowButtons;
+  final UpdateCheck? updates;
 
   ThemeData _theme(Brightness brightness) => ThemeData(
     colorScheme: ColorScheme.fromSeed(
@@ -56,6 +60,7 @@ class VogesTablesApp extends StatelessWidget {
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
+          UpdaterLocalizations.delegate,
         ],
         home: EditorScreen(
           controller: controller,
@@ -64,6 +69,7 @@ class VogesTablesApp extends StatelessWidget {
           language: language,
           launchArguments: launchArguments,
           windowButtons: windowButtons,
+          updates: updates,
         ),
       ),
     );

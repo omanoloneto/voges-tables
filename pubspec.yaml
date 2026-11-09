@@ -39,6 +39,11 @@ dependencies:
   intl: any
   flutter_localizations:
     sdk: flutter
+  voges_updater:
+    git:
+      url: https://github.com/omanoloneto/voges-word.git
+      path: packages/voges_updater
+      ref: 7b6519597fc345875c81fc26bc67e37a8a51da49
 
 dev_dependencies:
   flutter_test:
@@ -51,6 +56,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
+  path: ^1.9.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
