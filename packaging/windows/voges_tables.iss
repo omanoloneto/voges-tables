@@ -1,5 +1,5 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.1"
 #endif
 #define AppExe "voges_tables.exe"
 #define ProgId "VogesTables.Spreadsheet"

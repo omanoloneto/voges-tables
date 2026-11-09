@@ -1,23 +1,9 @@
 Voges Tables: a simple spreadsheet for macOS, Windows and Linux. Part of the Voges suite, next to Voges Word and Voges Pencil.
 
-## What's in Voges Tables 1.0.0
+## What's new in Voges Tables 1.0.1
 
-- Type numbers, text, dates, times, percentages and money the way you would in Excel in your language.
-- About 90 functions (math, statistics, logic, lookup, text, dates and information), typed with the names of your language: `=SOMA(A1:A5)` in Portuguese, `=SUMA(...)` in Spanish, `=SUM(...)` in English. Files always store the English names, so they open in any spreadsheet program.
-- References to cells, ranges, whole columns and rows and other sheets; only the cells that depend on a change are calculated again.
-- Bold, italic, underline, strikethrough, font size, text and fill colors, alignment, wrap text, borders and number formats.
-- Copy, cut and paste, also from other programs; the fill handle, AutoSum, sorting, and undo and redo for every change.
-- Insert and delete rows and columns; formulas in every sheet follow, as in Excel.
-- Merge & Center, and Find and Replace with match case, whole cell, wildcards and a search in formulas.
-- Column, bar, line, area, pie and scatter charts that you move and resize over the cells.
-- Several sheets per file, resizable columns and rows, and frozen rows and columns. Renaming a sheet keeps the formulas and charts that read it working.
-- Opens `.xlsx`, `.xlsm` (without the macros), `.csv`, `.tsv` and `.txt`; saves `.xlsx` and `.csv`. Merged cells and charts are kept in `.xlsx`.
-- Made to stay fast on big sheets: only what changes is calculated again, also when rows and columns are inserted or deleted.
-- The status bar shows the sum, the average and the count of the selected cells, and the zoom from 25% to 400%.
-- Warns before closing or opening another file with unsaved changes.
-- Shows up in "Open with" for the spreadsheet files it opens, without becoming the default app.
-- Interface in English, Portuguese and Spanish.
-- Checks for updates when it opens and installs them with Voges Updater.
+- Voges Updater now also offers the Voges apps you don't have yet, below the updates. They are never ticked for you: pick the ones you want, or follow the link to the app's page first.
+- Apps that join the suite from now on show up there without a new version of Voges Tables. The updater reads them from a list on the Voges website, signed with the same key as the releases.
 
 ## Install
 
