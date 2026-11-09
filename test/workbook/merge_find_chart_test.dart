@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:voges_tables/files/spreadsheet_files.dart';
+import 'package:voges_tables/files/workbook_codec.dart';
 import 'package:voges_tables/formula/locale.dart';
 import 'package:voges_tables/sheet/cell_address.dart';
 import 'package:voges_tables/sheet/cell_style.dart';
@@ -263,5 +265,38 @@ void main() {
     expect(c.workbook.sheets[0].name, 'Sheet1');
     expect(c.workbook.sheets[1].cellAt(at('A1')).input, '=Sheet1!A1*10');
     expect(c.sheet.charts.single.series.single.values.sheet, 'Sheet1');
+  });
+
+  test('merges and charts survive saving and opening the .xlsx', () async {
+    final c = controller();
+    c.enter(at('A1'), 'Vendas');
+    c.enter(at('A2'), 'Mês');
+    c.enter(at('B2'), 'Total');
+    c.enter(at('A3'), 'Jan');
+    c.enter(at('B3'), '5');
+    c.enter(at('A4'), 'Fev');
+    c.enter(at('B4'), '=B3*2');
+    c.select(select('A1:B1'));
+    c.mergeSelection();
+    c.select(select('A2:B4'));
+    c.insertChart(ChartKind.bar);
+    c.updateChart(0, c.sheet.charts.single.copyWith(title: () => 'Resumo'));
+    final bytes = encodeWorkbook(c, SaveFormat.xlsx, locale: FormulaLocale.pt);
+    final opened = await decodeWorkbook(
+      OpenedFile(name: 'teste.xlsx', bytes: bytes),
+      locale: FormulaLocale.pt,
+      sheetName: 'Planilha1',
+    );
+    final sheet = opened.sheets.single;
+    expect(sheet.merges, [range('A1:B1')]);
+    final chart = sheet.charts.single;
+    final saved = c.sheet.charts.single;
+    expect(chart.kind, ChartKind.bar);
+    expect(chart.title, 'Resumo');
+    expect(chart.categories?.range, range('A3:A4'));
+    expect(chart.series.single.values.range, range('B3:B4'));
+    expect(chart.series.single.name?.range, range('B2:B2'));
+    expect(chart.from.cell, saved.from.cell);
+    expect(chart.to.cell, saved.to.cell);
   });
 }
