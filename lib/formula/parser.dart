@@ -201,6 +201,7 @@ class _Parser {
           CellAddress(start.column!, 0),
           CellAddress(end.column!, CellAddress.maxRows - 1),
         ),
+        wholeColumns: true,
       );
     }
     if (start.column == null && end.column == null) {
@@ -210,6 +211,7 @@ class _Parser {
           CellAddress(0, start.row!),
           CellAddress(CellAddress.maxColumns - 1, end.row!),
         ),
+        wholeRows: true,
       );
     }
     throw _valueError;

@@ -285,4 +285,26 @@ class AppLocalizationsPt extends AppLocalizations {
   String sheetName(int number) {
     return 'Planilha$number';
   }
+
+  @override
+  String get insertCells => 'Inserir';
+
+  @override
+  String get deleteCells => 'Excluir';
+
+  @override
+  String get insertRows => 'Inserir linhas';
+
+  @override
+  String get insertColumns => 'Inserir colunas';
+
+  @override
+  String get deleteRows => 'Excluir linhas';
+
+  @override
+  String get deleteColumns => 'Excluir colunas';
+
+  @override
+  String get insertNoRoom =>
+      'Não há espaço: as últimas linhas ou colunas da planilha têm dados.';
 }

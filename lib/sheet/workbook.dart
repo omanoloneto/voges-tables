@@ -1,6 +1,7 @@
 import 'cell_address.dart';
 import 'cell_style.dart';
 import 'cell_value.dart';
+import 'structure.dart';
 
 /// What the user typed in a cell, and its look.
 ///
@@ -38,37 +39,110 @@ class Sheet {
   Sheet(this.name);
 
   String name;
-  final Map<CellAddress, Cell> cells = {};
-  final Map<int, double> columnWidths = {};
-  final Map<int, double> rowHeights = {};
+  Map<CellAddress, Cell> _cells = {};
+  Map<int, double> columnWidths = {};
+  Map<int, double> rowHeights = {};
   int frozenRows = 0;
   int frozenColumns = 0;
 
   static const defaultColumnWidth = 88.0;
   static const defaultRowHeight = 24.0;
 
-  Cell cellAt(CellAddress address) => cells[address] ?? const Cell();
+  /// Read only: every change goes through [setCell] or [replaceCells], so
+  /// [usedRange] stays cheap.
+  Map<CellAddress, Cell> get cells => _cells;
+
+  CellAddress? _corner;
+  var _cornerStale = false;
+
+  Cell cellAt(CellAddress address) => _cells[address] ?? const Cell();
 
   void setCell(CellAddress address, Cell cell) {
     if (cell.isEmpty) {
-      cells.remove(address);
+      if (_cells.remove(address) == null) return;
+      final corner = _corner;
+      if (corner != null &&
+          (address.column == corner.column || address.row == corner.row)) {
+        _cornerStale = true;
+      }
+      return;
+    }
+    _cells[address] = cell;
+    _grow(address);
+  }
+
+  /// Puts in a whole new set of cells, as inserting rows does.
+  void replaceCells(Map<CellAddress, Cell> cells) {
+    _cells = cells;
+    _cornerStale = true;
+  }
+
+  void _grow(CellAddress address) {
+    if (_cornerStale) return;
+    final corner = _corner;
+    if (corner == null) {
+      _corner = address;
+    } else if (address.column > corner.column || address.row > corner.row) {
+      _corner = CellAddress(
+        address.column > corner.column ? address.column : corner.column,
+        address.row > corner.row ? address.row : corner.row,
+      );
+    }
+  }
+
+  /// Moves sizes and frozen panes as rows or columns come and go.
+  void moveLayout(StructureEdit edit) {
+    if (edit.axis == SheetAxis.rows) {
+      rowHeights = edit.moveKeys(rowHeights);
+      frozenRows = edit.moveFrozen(frozenRows);
     } else {
-      cells[address] = cell;
+      columnWidths = edit.moveKeys(columnWidths);
+      frozenColumns = edit.moveFrozen(frozenColumns);
     }
   }
 
   double columnWidth(int column) => columnWidths[column] ?? defaultColumnWidth;
   double rowHeight(int row) => rowHeights[row] ?? defaultRowHeight;
 
-  /// The last used row and column, or null for an empty sheet.
+  /// From `A1` to the last used row and column, or null for an empty sheet.
+  /// Kept up to date as cells change; only removing a cell on the edge makes
+  /// the next call look at every cell again.
   CellRange? get usedRange {
-    if (cells.isEmpty) return null;
-    var maxColumn = 0, maxRow = 0;
-    for (final address in cells.keys) {
-      if (address.column > maxColumn) maxColumn = address.column;
-      if (address.row > maxRow) maxRow = address.row;
+    if (_cornerStale) {
+      _cornerStale = false;
+      _corner = null;
+      var maxColumn = -1, maxRow = -1;
+      for (final address in _cells.keys) {
+        if (address.column > maxColumn) maxColumn = address.column;
+        if (address.row > maxRow) maxRow = address.row;
+      }
+      if (maxColumn >= 0) _corner = CellAddress(maxColumn, maxRow);
     }
-    return CellRange(const CellAddress(0, 0), CellAddress(maxColumn, maxRow));
+    final corner = _corner;
+    if (corner == null) return null;
+    return CellRange(const CellAddress(0, 0), corner);
+  }
+}
+
+/// The sizes and frozen panes of a sheet, as undo keeps them.
+class SheetLayout {
+  SheetLayout.of(Sheet sheet)
+    : columnWidths = {...sheet.columnWidths},
+      rowHeights = {...sheet.rowHeights},
+      frozenRows = sheet.frozenRows,
+      frozenColumns = sheet.frozenColumns;
+
+  final Map<int, double> columnWidths;
+  final Map<int, double> rowHeights;
+  final int frozenRows;
+  final int frozenColumns;
+
+  void restore(Sheet sheet) {
+    sheet
+      ..columnWidths = {...columnWidths}
+      ..rowHeights = {...rowHeights}
+      ..frozenRows = frozenRows
+      ..frozenColumns = frozenColumns;
   }
 }
 

@@ -116,5 +116,12 @@
         "type": "int"
       }
     }
-  }
+  },
+  "insertCells": "Insert",
+  "deleteCells": "Delete",
+  "insertRows": "Insert rows",
+  "insertColumns": "Insert columns",
+  "deleteRows": "Delete rows",
+  "deleteColumns": "Delete columns",
+  "insertNoRoom": "There is no room: the last rows or columns of the sheet have data."
 }

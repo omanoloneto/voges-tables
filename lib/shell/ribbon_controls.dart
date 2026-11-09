@@ -246,3 +246,44 @@ class RibbonField extends StatelessWidget {
     );
   }
 }
+
+class RibbonMenuItem {
+  const RibbonMenuItem(this.icon, this.label, this.onPressed);
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+}
+
+/// A small ribbon button that opens a list of commands.
+class RibbonMenuIconButton extends StatelessWidget {
+  const RibbonMenuIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.items,
+    super.key,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final List<RibbonMenuItem> items;
+
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+    style: ribbonMenuStyle(),
+    menuChildren: [
+      for (final item in items)
+        MenuItemButton(
+          style: ribbonMenuItemStyle(),
+          leadingIcon: Icon(item.icon, size: 18),
+          onPressed: item.onPressed,
+          child: Text(item.label),
+        ),
+    ],
+    builder: (context, menu, _) => RibbonIconButton(
+      icon: icon,
+      tooltip: tooltip,
+      onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+    ),
+  );
+}

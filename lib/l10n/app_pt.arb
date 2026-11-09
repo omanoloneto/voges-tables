@@ -88,5 +88,12 @@
   "deleteSheetMessage": "Excluir a planilha \"{name}\"? Isso não pode ser desfeito.",
   "saveAsFormat": "Salvar como {format}",
   "saveChangesMessage": "Deseja salvar as alterações em \"{name}\"?",
-  "sheetName": "Planilha{number}"
+  "sheetName": "Planilha{number}",
+  "insertCells": "Inserir",
+  "deleteCells": "Excluir",
+  "insertRows": "Inserir linhas",
+  "insertColumns": "Inserir colunas",
+  "deleteRows": "Excluir linhas",
+  "deleteColumns": "Excluir colunas",
+  "insertNoRoom": "Não há espaço: as últimas linhas ou colunas da planilha têm dados."
 }

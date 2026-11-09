@@ -28,6 +28,7 @@ class SpreadsheetGrid extends StatefulWidget {
     required this.focusNode,
     required this.zoom,
     required this.onZoom,
+    required this.onContextMenu,
     super.key,
   });
 
@@ -36,6 +37,9 @@ class SpreadsheetGrid extends StatefulWidget {
   final FocusNode focusNode;
   final double zoom;
   final ValueChanged<double> onZoom;
+
+  /// A right click, with where it happened on the screen.
+  final ValueChanged<Offset> onContextMenu;
 
   @override
   State<SpreadsheetGrid> createState() => SpreadsheetGridState();
@@ -276,10 +280,8 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     final shift = HardwareKeyboard.instance.isShiftPressed;
     final p = local / zoom;
     if (secondary) {
-      final cell = _cellAt(local);
-      if (cell != null && !controller.selection.range.contains(cell)) {
-        controller.select(Selection.single(cell));
-      }
+      _selectForMenu(p);
+      _menuAt = event.position;
       return;
     }
     if (_columnBorderAt(local) case final column?) {
@@ -335,6 +337,43 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   }
 
   CellAddress? _referenceStart;
+  Offset? _menuAt;
+
+  /// A right click outside the selection selects what is under it first,
+  /// whole rows or columns on the headers, as in Excel.
+  void _selectForMenu(Offset p) {
+    final columns = _columns, rows = _rows;
+    final range = controller.selection.range;
+    final column = columns.indexAtScreen(p.dx), row = rows.indexAtScreen(p.dy);
+    if (column != null && row == null) {
+      if (controller.wholeColumnsSelected &&
+          column >= range.first.column &&
+          column <= range.last.column) {
+        return;
+      }
+      controller.select(
+        Selection(
+          CellAddress(column, 0),
+          CellAddress(column, CellAddress.maxRows - 1),
+        ),
+      );
+    } else if (row != null && column == null) {
+      if (controller.wholeRowsSelected &&
+          row >= range.first.row &&
+          row <= range.last.row) {
+        return;
+      }
+      controller.select(
+        Selection(
+          CellAddress(0, row),
+          CellAddress(CellAddress.maxColumns - 1, row),
+        ),
+      );
+    } else if (column != null && row != null) {
+      final cell = CellAddress(column, row);
+      if (!range.contains(cell)) controller.select(Selection.single(cell));
+    }
+  }
 
   String _referenceText(CellRange range) {
     final prefix = controller.activeSheet == editing.sheet
@@ -408,6 +447,10 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
   double? _resizeOriginal;
 
   void _pointerUp(PointerUpEvent event) {
+    if (_menuAt case final position?) {
+      _menuAt = null;
+      widget.onContextMenu(position);
+    }
     switch (_drag) {
       case _Drag.fill:
         final target = _fillPreview;

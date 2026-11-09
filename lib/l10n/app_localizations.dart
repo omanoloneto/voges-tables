@@ -633,6 +633,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sheet{number}'**
   String sheetName(int number);
+
+  /// No description provided for @insertCells.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert'**
+  String get insertCells;
+
+  /// No description provided for @deleteCells.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get deleteCells;
+
+  /// No description provided for @insertRows.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert rows'**
+  String get insertRows;
+
+  /// No description provided for @insertColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert columns'**
+  String get insertColumns;
+
+  /// No description provided for @deleteRows.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete rows'**
+  String get deleteRows;
+
+  /// No description provided for @deleteColumns.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete columns'**
+  String get deleteColumns;
+
+  /// No description provided for @insertNoRoom.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no room: the last rows or columns of the sheet have data.'**
+  String get insertNoRoom;
 }
 
 class _AppLocalizationsDelegate

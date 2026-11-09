@@ -285,4 +285,26 @@ class AppLocalizationsEs extends AppLocalizations {
   String sheetName(int number) {
     return 'Hoja$number';
   }
+
+  @override
+  String get insertCells => 'Insertar';
+
+  @override
+  String get deleteCells => 'Eliminar';
+
+  @override
+  String get insertRows => 'Insertar filas';
+
+  @override
+  String get insertColumns => 'Insertar columnas';
+
+  @override
+  String get deleteRows => 'Eliminar filas';
+
+  @override
+  String get deleteColumns => 'Eliminar columnas';
+
+  @override
+  String get insertNoRoom =>
+      'No hay espacio: las últimas filas o columnas de la hoja tienen datos.';
 }

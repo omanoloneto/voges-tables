@@ -34,14 +34,17 @@ class CellAddress implements Comparable<CellAddress> {
   }
 
   static String columnName(int column) {
-    var n = column + 1;
-    final buffer = StringBuffer();
-    while (n > 0) {
-      final rest = (n - 1) % 26;
-      buffer.write(String.fromCharCode(65 + rest));
-      n = (n - 1) ~/ 26;
+    final n = column + 1;
+    if (n <= 26) return String.fromCharCode(64 + n);
+    if (n <= 702) {
+      return String.fromCharCodes([64 + (n - 1) ~/ 26, 65 + (n - 1) % 26]);
     }
-    return buffer.toString().split('').reversed.join();
+    final rest = n - 703;
+    return String.fromCharCodes([
+      65 + rest ~/ 676,
+      65 + rest ~/ 26 % 26,
+      65 + rest % 26,
+    ]);
   }
 
   String get a1 => '${columnName(column)}${row + 1}';

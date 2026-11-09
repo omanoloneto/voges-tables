@@ -22,6 +22,7 @@ import '../l10n/app_language.dart';
 import '../l10n/l10n.dart';
 import '../sheet/cell_address.dart';
 import '../sheet/cell_value.dart';
+import '../sheet/structure.dart';
 import '../sheet/workbook.dart';
 import '../shell/platform.dart';
 import '../shell/ribbon_style.dart';
@@ -417,6 +418,91 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
     }
   }
 
+  void _insert(SheetAxis axis) {
+    _finishTyping();
+    final done = axis == SheetAxis.rows
+        ? controller.insertRows()
+        : controller.insertColumns();
+    if (!done) _tell(context.l10n.insertNoRoom);
+  }
+
+  void _delete(SheetAxis axis) {
+    _finishTyping();
+    if (axis == SheetAxis.rows) {
+      controller.deleteRows();
+    } else {
+      controller.deleteColumns();
+    }
+  }
+
+  /// The keyboard inserts or deletes columns only when whole columns are
+  /// selected, rows otherwise.
+  SheetAxis get _keyboardAxis =>
+      controller.wholeColumnsSelected && !controller.wholeRowsSelected
+      ? SheetAxis.columns
+      : SheetAxis.rows;
+
+  Future<void> _showCellMenu(Offset position) async {
+    final l10n = context.l10n;
+    PopupMenuItem<VoidCallback> item(
+      IconData icon,
+      String label,
+      VoidCallback action,
+    ) => PopupMenuItem(
+      value: action,
+      height: 36,
+      child: Row(
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 12),
+          Text(label),
+        ],
+      ),
+    );
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final action = await showMenu<VoidCallback>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        item(Icons.content_cut, l10n.cut, () => _copy(cut: true)),
+        item(Icons.content_copy, l10n.copy, _copy),
+        item(Icons.content_paste, l10n.paste, _paste),
+        const PopupMenuDivider(),
+        item(
+          Icons.table_rows_outlined,
+          l10n.insertRows,
+          () => _insert(SheetAxis.rows),
+        ),
+        item(
+          Icons.view_column_outlined,
+          l10n.insertColumns,
+          () => _insert(SheetAxis.columns),
+        ),
+        item(
+          Icons.table_rows_outlined,
+          l10n.deleteRows,
+          () => _delete(SheetAxis.rows),
+        ),
+        item(
+          Icons.view_column_outlined,
+          l10n.deleteColumns,
+          () => _delete(SheetAxis.columns),
+        ),
+        const PopupMenuDivider(),
+        item(
+          Icons.backspace_outlined,
+          l10n.clearContents,
+          controller.clearContents,
+        ),
+      ],
+    );
+    action?.call();
+    _gridFocus.requestFocus();
+  }
+
   void _bold() {
     final on = !controller.activeStyle.bold;
     controller.applyStyle((s) => s.copyWith(bold: on));
@@ -471,6 +557,12 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
         shortcut(LogicalKeyboardKey.keyB): _cells(_bold),
         shortcut(LogicalKeyboardKey.keyI): _cells(_italic),
         shortcut(LogicalKeyboardKey.keyU): _cells(_underline),
+        shortcut(LogicalKeyboardKey.equal, shift: true): _cells(
+          () => _insert(_keyboardAxis),
+        ),
+        shortcut(LogicalKeyboardKey.minus, shift: true): _cells(
+          () => _delete(_keyboardAxis),
+        ),
         shortcut(LogicalKeyboardKey.equal): () => _setZoom(_zoom + 0.1),
         shortcut(LogicalKeyboardKey.minus): () => _setZoom(_zoom - 0.1),
         shortcut(LogicalKeyboardKey.digit0): () => _setZoom(1),
@@ -510,6 +602,8 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
                           cut: () => _copy(cut: true),
                           paste: _paste,
                           autoSum: _autoSum,
+                          insert: _insert,
+                          delete: _delete,
                         ),
                       ),
                     ],
@@ -528,6 +622,7 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
                   focusNode: _gridFocus,
                   zoom: _zoom,
                   onZoom: _setZoom,
+                  onContextMenu: _showCellMenu,
                 ),
               ),
               ListenableBuilder(

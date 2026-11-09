@@ -1,7 +1,8 @@
 /// The formula engine's public API for the rest of the app.
 library;
 
-export 'calculator.dart' show Calculator;
+export 'calculator.dart' show Calculator, StructureResult;
+export 'dependency_graph.dart' show CellKey, cellKey;
 export 'dates.dart';
 export 'format.dart' show formatValue, formatDate, formatTime;
 export 'input.dart';
