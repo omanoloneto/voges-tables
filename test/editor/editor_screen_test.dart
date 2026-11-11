@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,6 +44,52 @@ Future<WorkbookController> pumpEditor(WidgetTester tester) async {
 /// A point of the grid, counting from its top left corner.
 Offset onGrid(WidgetTester tester, double x, double y) =>
     tester.getTopLeft(find.byType(SpreadsheetGrid)) + Offset(x, y);
+
+/// The middle of [cell], with the default sizes and no scrolling.
+Offset onCell(WidgetTester tester, CellAddress cell) => onGrid(
+  tester,
+  40 + (cell.column + 0.5) * Sheet.defaultColumnWidth,
+  columnHeaderHeight + (cell.row + 0.5) * Sheet.defaultRowHeight,
+);
+
+/// A clipboard of the test's own, so a test never reads the real one.
+void mockClipboard(WidgetTester tester, String text) {
+  String? clipboard = text;
+  final messenger = tester.binding.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    switch (call.method) {
+      case 'Clipboard.setData':
+        clipboard = (call.arguments as Map)['text'] as String?;
+      case 'Clipboard.getData':
+        return {'text': clipboard};
+      case 'Clipboard.hasStrings':
+        return {'value': clipboard?.isNotEmpty ?? false};
+    }
+    return null;
+  });
+  addTearDown(
+    () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+  );
+}
+
+/// ⌘ and [key] on macOS, Ctrl and [key] elsewhere.
+Future<void> pressShortcut(WidgetTester tester, LogicalKeyboardKey key) async {
+  final command = defaultTargetPlatform == TargetPlatform.macOS
+      ? LogicalKeyboardKey.metaLeft
+      : LogicalKeyboardKey.controlLeft;
+  await tester.sendKeyDownEvent(command);
+  await tester.sendKeyEvent(key);
+  await tester.sendKeyUpEvent(command);
+  await tester.pumpAndSettle();
+}
+
+Finder get cellEditor => find.descendant(
+  of: find.byType(SpreadsheetGrid),
+  matching: find.byType(EditableText),
+);
+
+String editorText(WidgetTester tester) =>
+    tester.widget<EditableText>(cellEditor).controller.text;
 
 void main() {
   testWidgets('a right click on a row header inserts rows there', (
@@ -142,4 +189,140 @@ void main() {
     expect(after.cell.column, before.cell.column + 1);
     expect(after.cell.row, before.cell.row + 2);
   });
+
+  testWidgets(
+    'the paste shortcut on a selected cell pastes cells',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      mockClipboard(tester, '1\t2');
+      await pressShortcut(tester, LogicalKeyboardKey.keyV);
+      expect(c.displayAt(at('A1')), '1');
+      expect(c.displayAt(at('B1')), '2');
+    },
+    variant: TargetPlatformVariant.desktop(),
+  );
+
+  testWidgets(
+    'the paste shortcut while typing in a cell pastes into its text',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      c.enter(at('A1'), '1');
+      c.enter(at('A2'), '2');
+      c.enter(at('A3'), '3');
+      c.select(Selection.single(at('A4')));
+      await tester.pump();
+      mockClipboard(tester, '=SOMA(A1:A3)');
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      await tester.pumpAndSettle();
+      await pressShortcut(tester, LogicalKeyboardKey.keyV);
+      expect(editorText(tester), '=SOMA(A1:A3)');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(c.displayAt(at('A4')), '6');
+    },
+    variant: TargetPlatformVariant.desktop(),
+  );
+
+  testWidgets(
+    'the paste shortcut in the find bar pastes into it, not into the cells',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      c.enter(at('A1'), 'manter');
+      await tester.pump();
+      mockClipboard(tester, 'alvo');
+      await pressShortcut(tester, LogicalKeyboardKey.keyF);
+      await pressShortcut(tester, LogicalKeyboardKey.keyV);
+      final field = tester.widget<TextField>(
+        find
+            .descendant(
+              of: find.byType(FindBar),
+              matching: find.byType(TextField),
+            )
+            .first,
+      );
+      expect(field.controller!.text, 'alvo');
+      expect(c.displayAt(at('A1')), 'manter');
+    },
+    variant: TargetPlatformVariant.desktop(),
+  );
+
+  testWidgets('typing in a cell resizes only its editor, not the grid', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.pumpAndSettle();
+    var gridBuilds = 0;
+    debugOnRebuildDirtyWidget = (element, _) {
+      if (element.widget is SpreadsheetGrid) gridBuilds++;
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = null);
+    var text = 'a';
+    for (final letter in 'bcdefghijklmnopqrstuvwxyz'.split('')) {
+      text += letter;
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        ),
+      );
+      await tester.pump();
+    }
+    expect(editorText(tester), 'abcdefghijklmnopqrstuvwxyz');
+    expect(gridBuilds, 0);
+    final editor = find.ancestor(
+      of: cellEditor,
+      matching: find.byType(Container),
+    );
+    expect(
+      tester.getSize(editor.first).width,
+      greaterThan(2 * Sheet.defaultColumnWidth),
+    );
+  });
+
+  testWidgets(
+    'Backspace after a paste deletes in the cell instead of typing U+007F',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      c.select(Selection.single(at('A4')));
+      await tester.pump();
+      mockClipboard(tester, '=SOMA(A1:A3)');
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      await tester.pumpAndSettle();
+      await pressShortcut(tester, LogicalKeyboardKey.keyV);
+      for (final expected in ['=SOMA(A1:A3', '=SOMA(A1:A']) {
+        // macOS sends Backspace with the character U+007F
+        await tester.sendKeyDownEvent(
+          LogicalKeyboardKey.backspace,
+          character: '\x7f',
+        );
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.backspace);
+        await tester.pumpAndSettle();
+        expect(editorText(tester), expected);
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'a double click opens the cell editor with a blinking caret',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      c.enter(at('B2'), 'abc');
+      await tester.pump();
+      await tester.tapAt(onCell(tester, at('B2')));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(onCell(tester, at('B2')));
+      await tester.pumpAndSettle();
+      expect(editorText(tester), 'abc');
+      final editor = tester.state<EditableTextState>(cellEditor);
+      expect(editor.widget.focusNode.hasPrimaryFocus, isTrue);
+      final visible = editor.cursorCurrentlyVisible;
+      await tester.pump(editor.cursorBlinkInterval);
+      expect(editor.cursorCurrentlyVisible, !visible);
+      await tester.pump(editor.cursorBlinkInterval);
+      expect(editor.cursorCurrentlyVisible, visible);
+    },
+    variant: TargetPlatformVariant.desktop(),
+  );
 }

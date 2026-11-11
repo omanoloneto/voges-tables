@@ -581,43 +581,56 @@ class _EditorScreenState extends State<EditorScreen> with WindowListener {
     ),
   );
 
-  /// Shortcuts that act on cells only while no text is being typed, so the
-  /// editor keeps its own copy, paste and undo.
+  /// Cell shortcuts that mean nothing in text do nothing while a cell is
+  /// typed in.
   VoidCallback _cells(VoidCallback action) => () {
     if (!_editing.active) action();
   };
 
+  /// Copy, paste, undo and select all act on the cells only while the grid
+  /// has the keyboard focus and no cell is typed in; otherwise they go on to
+  /// the text field with the focus: the cell editor, the formula bar or the
+  /// find bar.
+  bool get _cellsTakeTextKeys => _gridFocus.hasFocus && !_editing.active;
+  late final _focusAndEditing = Listenable.merge([_gridFocus, _editing]);
+
   @override
   Widget build(BuildContext context) {
-    return CallbackShortcuts(
-      bindings: {
-        shortcut(LogicalKeyboardKey.keyN): _newWorkbook,
-        shortcut(LogicalKeyboardKey.keyO): _open,
-        shortcut(LogicalKeyboardKey.keyS): _save,
-        shortcut(LogicalKeyboardKey.keyS, shift: true): () =>
-            _saveAs(SaveFormat.xlsx),
-        shortcut(LogicalKeyboardKey.keyZ): _cells(controller.undo),
-        shortcut(LogicalKeyboardKey.keyZ, shift: true): _cells(controller.redo),
-        shortcut(LogicalKeyboardKey.keyY): _cells(controller.redo),
-        shortcut(LogicalKeyboardKey.keyC): _cells(_copy),
-        shortcut(LogicalKeyboardKey.keyX): _cells(() => _copy(cut: true)),
-        shortcut(LogicalKeyboardKey.keyV): _cells(_paste),
-        shortcut(LogicalKeyboardKey.keyA): _cells(controller.selectAll),
-        shortcut(LogicalKeyboardKey.keyB): _cells(_bold),
-        shortcut(LogicalKeyboardKey.keyI): _cells(_italic),
-        shortcut(LogicalKeyboardKey.keyU): _cells(_underline),
-        shortcut(LogicalKeyboardKey.keyF): _openFind,
-        shortcut(LogicalKeyboardKey.keyH): () => _openFind(replace: true),
-        shortcut(LogicalKeyboardKey.equal, shift: true): _cells(
-          () => _insert(_keyboardAxis),
-        ),
-        shortcut(LogicalKeyboardKey.minus, shift: true): _cells(
-          () => _delete(_keyboardAxis),
-        ),
-        shortcut(LogicalKeyboardKey.equal): () => _setZoom(_zoom + 0.1),
-        shortcut(LogicalKeyboardKey.minus): () => _setZoom(_zoom - 0.1),
-        shortcut(LogicalKeyboardKey.digit0): () => _setZoom(1),
-      },
+    return ListenableBuilder(
+      listenable: _focusAndEditing,
+      builder: (context, child) => CallbackShortcuts(
+        bindings: {
+          shortcut(LogicalKeyboardKey.keyN): _newWorkbook,
+          shortcut(LogicalKeyboardKey.keyO): _open,
+          shortcut(LogicalKeyboardKey.keyS): _save,
+          shortcut(LogicalKeyboardKey.keyS, shift: true): () =>
+              _saveAs(SaveFormat.xlsx),
+          if (_cellsTakeTextKeys) ...{
+            shortcut(LogicalKeyboardKey.keyZ): controller.undo,
+            shortcut(LogicalKeyboardKey.keyZ, shift: true): controller.redo,
+            shortcut(LogicalKeyboardKey.keyC): _copy,
+            shortcut(LogicalKeyboardKey.keyX): () => _copy(cut: true),
+            shortcut(LogicalKeyboardKey.keyV): _paste,
+            shortcut(LogicalKeyboardKey.keyA): controller.selectAll,
+          },
+          shortcut(LogicalKeyboardKey.keyY): _cells(controller.redo),
+          shortcut(LogicalKeyboardKey.keyB): _cells(_bold),
+          shortcut(LogicalKeyboardKey.keyI): _cells(_italic),
+          shortcut(LogicalKeyboardKey.keyU): _cells(_underline),
+          shortcut(LogicalKeyboardKey.keyF): _openFind,
+          shortcut(LogicalKeyboardKey.keyH): () => _openFind(replace: true),
+          shortcut(LogicalKeyboardKey.equal, shift: true): _cells(
+            () => _insert(_keyboardAxis),
+          ),
+          shortcut(LogicalKeyboardKey.minus, shift: true): _cells(
+            () => _delete(_keyboardAxis),
+          ),
+          shortcut(LogicalKeyboardKey.equal): () => _setZoom(_zoom + 0.1),
+          shortcut(LogicalKeyboardKey.minus): () => _setZoom(_zoom - 0.1),
+          shortcut(LogicalKeyboardKey.digit0): () => _setZoom(1),
+        },
+        child: child!,
+      ),
       child: _resizable(
         Scaffold(
           body: Column(
