@@ -45,6 +45,13 @@ Future<WorkbookController> pumpEditor(WidgetTester tester) async {
 Offset onGrid(WidgetTester tester, double x, double y) =>
     tester.getTopLeft(find.byType(SpreadsheetGrid)) + Offset(x, y);
 
+/// The middle of [cell], with the default sizes and no scrolling.
+Offset onCell(WidgetTester tester, CellAddress cell) => onGrid(
+  tester,
+  40 + (cell.column + 0.5) * Sheet.defaultColumnWidth,
+  columnHeaderHeight + (cell.row + 0.5) * Sheet.defaultRowHeight,
+);
+
 /// A clipboard of the test's own, so a test never reads the real one.
 void mockClipboard(WidgetTester tester, String text) {
   String? clipboard = text;
@@ -295,5 +302,27 @@ void main() {
       }
     },
     variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'a double click opens the cell editor with a blinking caret',
+    (tester) async {
+      final c = await pumpEditor(tester);
+      c.enter(at('B2'), 'abc');
+      await tester.pump();
+      await tester.tapAt(onCell(tester, at('B2')));
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(onCell(tester, at('B2')));
+      await tester.pumpAndSettle();
+      expect(editorText(tester), 'abc');
+      final editor = tester.state<EditableTextState>(cellEditor);
+      expect(editor.widget.focusNode.hasPrimaryFocus, isTrue);
+      final visible = editor.cursorCurrentlyVisible;
+      await tester.pump(editor.cursorBlinkInterval);
+      expect(editor.cursorCurrentlyVisible, !visible);
+      await tester.pump(editor.cursorBlinkInterval);
+      expect(editor.cursorCurrentlyVisible, visible);
+    },
+    variant: TargetPlatformVariant.desktop(),
   );
 }

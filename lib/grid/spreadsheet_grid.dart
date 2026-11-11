@@ -675,14 +675,20 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     if (dx != 0 || dy != 0) _scrollTo(_scroll + Offset(dx, dy));
   }
 
-  void _doubleTap(TapDownDetails details) {
-    final local = details.localPosition;
+  var _doubleTapAt = Offset.zero;
+
+  /// Runs when the second click is released: its press goes through
+  /// [_pointerDown], which commits any edit, so an editor opened on the
+  /// press closed at once.
+  void _doubleTap() {
+    final local = _doubleTapAt;
     if (_columnBorderAt(local) case final column?) {
       _autoFit(column);
       return;
     }
     final cell = _cellAt(local);
-    if (cell != null) {
+    // while a formula is typed, the clicks picked a reference for it
+    if (cell != null && !editing.active) {
       controller.select(Selection.single(cell));
       editing.start(controller.editCell);
     }
@@ -1047,8 +1053,9 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
                     onPointerPanZoomStart: (_) => _pinch = 1,
                     onPointerPanZoomUpdate: _panZoom,
                     child: GestureDetector(
-                      onDoubleTapDown: _doubleTap,
-                      onDoubleTap: () {},
+                      onDoubleTapDown: (details) =>
+                          _doubleTapAt = details.localPosition,
+                      onDoubleTap: _doubleTap,
                       child: CustomPaint(painter: painter, size: Size.infinite),
                     ),
                   ),
