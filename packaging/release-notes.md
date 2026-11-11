@@ -1,9 +1,12 @@
 Voges Tables: a simple spreadsheet for macOS, Windows and Linux. Part of the Voges suite, next to Voges Word and Voges Pencil.
 
-## What's new in Voges Tables 1.0.1
+## What's new in Voges Tables 1.0.2
 
-- Voges Updater now also offers the Voges apps you don't have yet, below the updates. They are never ticked for you: pick the ones you want, or follow the link to the app's page first.
-- Apps that join the suite from now on show up there without a new version of Voges Tables. The updater reads them from a list on the Voges website, signed with the same key as the releases.
+- **Paste while typing in a cell:** Ctrl+V (⌘V on the Mac) pastes into the cell's text, and Backspace deletes again instead of typing a box. Copy, cut, select all and undo also act on the text while you type.
+- **Double click** on a cell opens it for editing, with a blinking caret.
+- In **Find**, paste goes into the search field, not into the cells.
+- Typing in a cell no longer draws the whole sheet again at every key.
+- **Linux:** the window shows the app's icon in Alt+Tab and in window lists.
 
 ## Install
 
