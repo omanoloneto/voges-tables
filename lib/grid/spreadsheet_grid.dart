@@ -734,7 +734,11 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
-    if (editing.active) return _typeAhead(event);
+    if (editing.active) {
+      // the editor over the cell is inside this Focus: once focused, it
+      // types, deletes and pastes by itself
+      return node.hasPrimaryFocus ? _typeAhead(event) : KeyEventResult.ignored;
+    }
     if (_chart case final index?) {
       final key = event.logicalKey;
       if (key == LogicalKeyboardKey.delete ||
@@ -812,18 +816,28 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
     if (key == LogicalKeyboardKey.escape) {
       return KeyEventResult.ignored;
     }
-    final character = event.character;
-    if (!command &&
-        !keys.isAltPressed &&
-        character != null &&
-        character.isNotEmpty &&
-        character.codeUnitAt(0) >= 32 &&
-        character.codeUnitAt(0) != 127) {
+    final character = _typed(event);
+    if (character != null) {
       ensureVisible(selection.active);
       editing.start(controller.editCell, replaceWith: character);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
+  }
+
+  /// What a key types in a cell: nothing with Ctrl, ⌘ or Alt held, and no
+  /// control characters, like the U+007F macOS sends for Backspace.
+  String? _typed(KeyEvent event) {
+    final keys = HardwareKeyboard.instance;
+    final character = event.character;
+    if (character == null ||
+        character.isEmpty ||
+        keys.isAltPressed ||
+        (isApplePlatform ? keys.isMetaPressed : keys.isControlPressed)) {
+      return null;
+    }
+    final code = character.codeUnitAt(0);
+    return code < 32 || code == 127 ? null : character;
   }
 
   /// Keys that arrive before the editor over the cell has the focus: typing
@@ -836,12 +850,8 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
         key == LogicalKeyboardKey.escape) {
       return _editorKey(widget.focusNode, event);
     }
-    final character = event.character;
-    if (character == null ||
-        character.isEmpty ||
-        character.codeUnitAt(0) < 32) {
-      return KeyEventResult.ignored;
-    }
+    final character = _typed(event);
+    if (character == null) return KeyEventResult.ignored;
     final value = editing.text.value;
     final at = value.selection.isValid
         ? value.selection.baseOffset
@@ -966,36 +976,44 @@ class SpreadsheetGridState extends State<SpreadsheetGrid> {
       style,
     ).copyWith(fontSize: TextCache.textStyleOf(style).fontSize! * zoom);
     final minWidth = rect.width * zoom;
-    final width = math.max(
-      minWidth,
-      (_textCache.layout('${editing.text.text}  ', style).width + 8) * zoom,
-    );
-    return Positioned(
-      left: rect.left * zoom,
-      top: rect.top * zoom,
-      child: Container(
-        constraints: BoxConstraints(
-          minWidth: minWidth,
-          minHeight: rect.height * zoom,
-          maxWidth: math.max(minWidth, width),
-        ),
-        decoration: BoxDecoration(
-          color: Color(style.fillColor ?? 0xFFFFFFFF),
-          border: Border.all(color: const Color(0xFF1D6B3E), width: 2),
-          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 4)],
-        ),
-        child: Focus(
-          onKeyEvent: _editorKey,
-          child: EditableText(
-            controller: editing.text,
-            focusNode: editing.cellFocus,
-            style: textStyle,
-            cursorColor: const Color(0xFF1D6B3E),
-            backgroundCursorColor: const Color(0xFF9E9E9E),
-            selectionColor: const Color(0x551D6B3E),
-            maxLines: null,
-            onChanged: (_) => setState(() {}),
+    // each key resizes only the editor, without painting the cells again
+    return ListenableBuilder(
+      listenable: editing.text,
+      builder: (context, child) {
+        final width = math.max(
+          minWidth,
+          (_textCache.layout('${editing.text.text}  ', style).width + 8) * zoom,
+        );
+        return Positioned(
+          left: rect.left * zoom,
+          top: rect.top * zoom,
+          child: Container(
+            constraints: BoxConstraints(
+              minWidth: minWidth,
+              minHeight: rect.height * zoom,
+              maxWidth: math.max(minWidth, width),
+            ),
+            decoration: BoxDecoration(
+              color: Color(style.fillColor ?? 0xFFFFFFFF),
+              border: Border.all(color: const Color(0xFF1D6B3E), width: 2),
+              boxShadow: const [
+                BoxShadow(color: Color(0x33000000), blurRadius: 4),
+              ],
+            ),
+            child: child,
           ),
+        );
+      },
+      child: Focus(
+        onKeyEvent: _editorKey,
+        child: EditableText(
+          controller: editing.text,
+          focusNode: editing.cellFocus,
+          style: textStyle,
+          cursorColor: const Color(0xFF1D6B3E),
+          backgroundCursorColor: const Color(0xFF9E9E9E),
+          selectionColor: const Color(0x551D6B3E),
+          maxLines: null,
         ),
       ),
     );
